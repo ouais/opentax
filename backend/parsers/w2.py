@@ -7,7 +7,7 @@ Optimized for standard W-2 PDF formats including Google's format.
 
 import re
 import pdfplumber
-
+from .utils import extract_payer_from_fields, extract_payer_name_from_text, looks_like_address, clean_name
 
 def extract_value_from_cell(cell_text: str) -> float:
     """
@@ -120,10 +120,12 @@ def parse_w2_tables(pdf) -> dict:
                         lines = cell.split('\n')
                         for line in lines[1:]:  # Skip the label line
                             line = line.strip()
-                            if line and not any(x in line.lower() for x in ['employer', 'address', 'zip']):
-                                if 'employer_name' not in result:
-                                    result['employer_name'] = line
-                                    break
+                            if line:
+                                cleaned = clean_name(line)
+                                if cleaned:
+                                    if 'employer_name' not in result:
+                                        result['employer_name'] = cleaned
+                                        break
     
     return result
 
@@ -173,6 +175,17 @@ def parse_w2(pdf_path: str) -> dict:
                           'casdi', 'employer_name']:
                 if field in table_data:
                     result[field] = table_data[field]
+            
+            # Fallback for employer name if not found in tables
+            if not result['employer_name']:
+                result['employer_name'] = extract_payer_from_fields(pdf)
+            
+            if not result['employer_name']:
+                # Look for 'Employer...' or 'Employer's name...'
+                result['employer_name'] = extract_payer_name_from_text(
+                    full_text, 
+                    label_pattern=r'(?:Employer.s?\s*name|Employer.s?\s*address|Employer\s*name)'
+                )
             
             # Calculate confidence based on fields found
             fields_found = sum(1 for f in ['wages', 'federal_tax_withheld', 

@@ -4,11 +4,15 @@ Tax Calculator API
 FastAPI backend for the 2025 tax calculator application.
 """
 
+import io
 import os
 import tempfile
+import zipfile
 from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import Response, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -19,6 +23,7 @@ from parsers.form_1099_b import parse_1099_b
 from parsers.form_1099_nec import parse_1099_nec
 from parsers.form_1040 import parse_form_1040
 from tax_engine import calculate_taxes
+from pdf_generator import generate_1040, generate_540
 
 
 app = FastAPI(
@@ -48,6 +53,7 @@ class TaxCalculationRequest(BaseModel):
     
     # 1099-INT fields
     interest_income: float = 0.0
+    tax_exempt_interest: float = 0.0
     interest_federal_withheld: float = 0.0
     
     # 1099-DIV fields
@@ -67,9 +73,24 @@ class TaxCalculationRequest(BaseModel):
     # Validation / Additional Payments
     estimated_tax_payments: float = 0.0
     other_withholding: float = 0.0
-    
-    # Tax Details
     tax_year: int = 2024
+    
+    # Advanced
+    itemized_deductions: float = 0.0
+    foreign_income: float = 0.0
+    state: str = "CA"
+
+class Pii(BaseModel):
+    firstName: str = ""
+    lastName: str = ""
+    ssn: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+
+class PdfRequest(TaxCalculationRequest):
+    pii: Pii
 
 
 class ParsedDocument(BaseModel):
@@ -212,6 +233,7 @@ async def calculate_tax(request: TaxCalculationRequest):
         'w2_social_security_wages': request.w2_social_security_wages,
         'w2_casdi': request.w2_casdi,
         'interest_income': request.interest_income,
+        'tax_exempt_interest': request.tax_exempt_interest,
         'interest_federal_withheld': request.interest_federal_withheld,
         'ordinary_dividends': request.ordinary_dividends,
         'qualified_dividends': request.qualified_dividends,
@@ -224,10 +246,71 @@ async def calculate_tax(request: TaxCalculationRequest):
         'estimated_tax_payments': request.estimated_tax_payments,
         'other_withholding': request.other_withholding,
         'tax_year': request.tax_year,
+        'itemized_deductions': request.itemized_deductions,
+        'foreign_income': request.foreign_income,
+        'state': request.state,
     }
     
     result = calculate_taxes(tax_input)
     return result
+
+
+@app.post("/api/generate-pdf")
+async def generate_pdf_endpoint(request: PdfRequest, form_type: str = "all"):
+    tax_input = request.dict(exclude={'pii'})
+    pii_dict = request.pii.dict()
+    
+    try:
+        result = calculate_taxes(tax_input)
+        
+        if form_type == "1040":
+            pdf_stream = generate_1040(result, pii_dict)
+            return Response(
+                content=pdf_stream.read(),
+                media_type="application/pdf",
+                headers={"Content-Disposition": "attachment; filename=form1040_2025.pdf"}
+            )
+        elif form_type == "540":
+            pdf_stream = generate_540(result, pii_dict)
+            return Response(
+                content=pdf_stream.read(),
+                media_type="application/pdf",
+                headers={"Content-Disposition": "attachment; filename=ca540_2025.pdf"}
+            )
+        else:
+            # Generate both and bundle as ZIP
+            pdf_1040 = generate_1040(result, pii_dict)
+            pdf_540 = generate_540(result, pii_dict)
+            
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr('form1040_2025.pdf', pdf_1040.read())
+                zf.writestr('ca540_2025.pdf', pdf_540.read())
+            zip_buffer.seek(0)
+            
+            return Response(
+                content=zip_buffer.read(),
+                media_type="application/zip",
+                headers={"Content-Disposition": "attachment; filename=tax_forms_2025.zip"}
+            )
+    except Exception as e:
+        print(f"PDF Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Serve React Frontend
+# Mount assets
+if os.path.exists("../frontend/dist/assets"):
+    app.mount("/assets", StaticFiles(directory="../frontend/dist/assets"), name="assets")
+
+# SPA Fallback for all other routes (excluding /api)
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    # API routes are handled above. This catches everything else.
+    # Serve index.html for React Router
+    if os.path.exists("../frontend/dist/index.html"):
+        return FileResponse("../frontend/dist/index.html")
+    return {"error": "Frontend not found. Please build frontend first."}
 
 
 if __name__ == "__main__":

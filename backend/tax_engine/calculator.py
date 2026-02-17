@@ -6,7 +6,7 @@ Combines federal and California tax calculations into a single API.
 
 from typing import TypedDict
 from .federal import calculate_federal_tax, FederalTaxResult
-from .california import calculate_california_tax, CaliforniaTaxResult
+from .states.california import calculate_california_tax, CaliforniaTaxResult
 
 
 class TaxInput(TypedDict, total=False):
@@ -19,6 +19,7 @@ class TaxInput(TypedDict, total=False):
     
     # Interest income (1099-INT)
     interest_income: float
+    tax_exempt_interest: float
     interest_federal_withheld: float
     
     # Dividend income (1099-DIV)
@@ -41,6 +42,11 @@ class TaxInput(TypedDict, total=False):
     # Validation / Additional Payments
     estimated_tax_payments: float
     other_withholding: float
+    
+    # Advanced
+    itemized_deductions: float
+    foreign_income: float
+    state: str
 
 
 class TaxSummary(TypedDict):
@@ -48,6 +54,7 @@ class TaxSummary(TypedDict):
     # Income totals
     total_wages: float
     total_interest: float
+    total_tax_exempt_interest: float
     total_dividends: float
     total_capital_gains: float
     total_self_employment: float
@@ -58,6 +65,13 @@ class TaxSummary(TypedDict):
     
     # California
     california: CaliforniaTaxResult
+    
+    # Payment Breakdown
+    estimated_tax_payments: float
+    other_withholding: float
+    
+    # Summaries
+    total_federal_withheld: float
     
     # Withholding
     total_federal_withheld: float
@@ -88,10 +102,12 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     w2_casdi = tax_input.get('w2_casdi', 0.0)  # CA State Disability Insurance
     
     
+    tax_year = tax_input.get('tax_year', 2024)
     estimated_tax_payments = tax_input.get('estimated_tax_payments', 0.0)
     other_withholding = tax_input.get('other_withholding', 0.0)
     
     interest_income = tax_input.get('interest_income', 0.0)
+    tax_exempt_interest = tax_input.get('tax_exempt_interest', 0.0)
     interest_federal_withheld = tax_input.get('interest_federal_withheld', 0.0)
     
     ordinary_dividends = tax_input.get('ordinary_dividends', 0.0)
@@ -109,7 +125,9 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     total_wages = w2_wages
     total_interest = interest_income
     total_dividends = ordinary_dividends  # qualified is subset of ordinary
-    total_capital_gains = short_term_gains + long_term_gains + capital_gain_distributions
+    net_capital_gains = short_term_gains + long_term_gains + capital_gain_distributions
+    # Limit capital loss deduction to $3,000
+    total_capital_gains = max(net_capital_gains, -3000.0)
     total_self_employment = self_employment_income
     
     gross_income = (
@@ -124,6 +142,9 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     # Note: ordinary_dividends includes qualified, so we subtract to get non-qualified
     non_qualified_dividends = ordinary_dividends - qualified_dividends
     
+    foreign_income = tax_input.get('foreign_income', 0.0)
+    itemized_deductions = tax_input.get('itemized_deductions', 0.0)
+    
     federal_result = calculate_federal_tax(
         wages=w2_wages,
         interest_income=interest_income,
@@ -132,19 +153,32 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         short_term_gains=short_term_gains,
         long_term_gains=long_term_gains + capital_gain_distributions,
         self_employment_income=self_employment_income,
+        foreign_income=foreign_income,
+        itemized_deductions=itemized_deductions,
         w2_social_security_wages=w2_social_security_wages,
         tax_year=tax_year,
     )
     
-    # Calculate California tax
-    california_result = calculate_california_tax(
-        wages=w2_wages,
-        interest_income=interest_income,
-        dividend_income=ordinary_dividends,
-        capital_gains=total_capital_gains,
-        self_employment_income=self_employment_income,
-        tax_year=tax_year,
-    )
+    # Calculate State Tax via Registry
+    from .registry import StateTaxRegistry
+    selected_state = tax_input.get('state', 'CA')
+    
+    state_calc = StateTaxRegistry.get_calculator(selected_state)
+    
+    state_input = {
+        'wages': w2_wages,
+        'interest_income': interest_income,
+        'dividend_income': ordinary_dividends,
+        'capital_gains': total_capital_gains,
+        'self_employment_income': self_employment_income,
+        'tax_year': tax_year,
+        'federal_agi': federal_result['adjusted_gross_income'],
+        'federal_taxable_income': federal_result['taxable_income'],
+        'filing_status': 'single'
+    }
+    
+    # Returns standardized StateTaxResult (compatible with CaliforniaTaxResult)
+    california_result = state_calc.calculate(state_input)
     
     # Calculate withholding totals
     total_federal_withheld = (
@@ -155,8 +189,10 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         estimated_tax_payments + 
         other_withholding
     )
-    # Include CASDI in state withholding (it's a California-specific payment)
-    total_state_withheld = w2_state_withheld + w2_casdi
+    # Include CASDI in state withholding? NO. CASDI is a separate tax (Disability Insurance).
+    # It is NOT a prepayment of Income Tax.
+    # So we should NOT include it in total_state_withheld for comparison against Income Tax Liability.
+    total_state_withheld = w2_state_withheld
     
     # Calculate bottom line
     total_tax_liability = federal_result['total_federal_tax'] + california_result['total_california_tax']
@@ -166,6 +202,7 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     return {
         'total_wages': total_wages,
         'total_interest': total_interest,
+        'total_tax_exempt_interest': tax_exempt_interest,
         'total_dividends': total_dividends,
         'total_capital_gains': total_capital_gains,
         'total_self_employment': total_self_employment,
@@ -174,8 +211,11 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         'california': california_result,
         'total_federal_withheld': total_federal_withheld,
         'total_state_withheld': total_state_withheld,
+        'estimated_tax_payments': estimated_tax_payments,
+        'other_withholding': other_withholding,
         'total_tax_liability': total_tax_liability,
         'total_withheld': total_withheld,
         'amount_owed': amount_owed,
         'refund_or_owed': 'refund' if amount_owed < 0 else 'owed',
+        'tax_year': tax_year,
     }

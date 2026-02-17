@@ -1,0 +1,179 @@
+/* Tax Form Styling */
+.tax-form-wrapper {
+    background: white;
+    color: black;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 11px;
+    line-height: 1.2;
+    margin: 20px auto;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    max-width: 850px;
+    /* Approx letter width on screen */
+}
+
+@media print {
+    .tax-form-wrapper {
+        box-shadow: none;
+        margin: 0;
+        width: 100%;
+        max-width: none;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+}
+
+/* Common Form Elements */
+.tax-form-page {
+    padding: 40px;
+    position: relative;
+    min-height: 1100px;
+    /* Letter height */
+    border-bottom: 2px dashed #ccc;
+}
+
+@media print {
+    .tax-form-page {
+        border-bottom: none;
+        page-break-after: always;
+        min-height: auto;
+        padding: 20px;
+    }
+}
+
+.tf-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    border-bottom: 2px solid black;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+.tf-header-left {
+    font-size: 24px;
+    font-weight: 800;
+    font-family: Arial, sans-serif;
+}
+
+.tf-header-center {
+    text-align: center;
+    flex: 1;
+    padding: 0 20px;
+}
+
+.tf-header-title {
+    font-size: 20px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.tf-header-year {
+    font-size: 32px;
+    font-weight: 700;
+    color: #000;
+}
+
+.tf-header-right {
+    text-align: right;
+}
+
+/* Form Lines */
+.tf-section-header {
+    background: #000;
+    color: #fff;
+    font-weight: bold;
+    padding: 2px 5px;
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.tf-row {
+    display: flex;
+    align-items: flex-end;
+    border-bottom: 1px solid #d3d3d3;
+    padding: 2px 0;
+}
+
+.tf-row.major {
+    border-bottom: 1px solid #000;
+}
+
+.tf-line-num {
+    width: 25px;
+    font-weight: bold;
+    text-align: right;
+    padding-right: 5px;
+}
+
+.tf-desc {
+    flex: 1;
+    padding-right: 10px;
+}
+
+.tf-inputs {
+    width: 150px;
+    display: flex;
+    flex-direction: column;
+}
+
+.tf-input-box {
+    border: 1px solid #888;
+    height: 20px;
+    background: #eafbfd;
+    /* Subtle highlight for value */
+    text-align: right;
+    padding: 2px 4px;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 12px;
+}
+
+@media print {
+    .tf-input-box {
+        background: transparent;
+        border: 1px solid #000;
+    }
+}
+
+.tf-details {
+    font-style: italic;
+    font-size: 10px;
+    color: #555;
+    margin-left: 5px;
+}
+
+/* PII Section */
+.tf-pii-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    border: 1px solid #000;
+    padding: 10px;
+    margin-bottom: 15px;
+}
+
+.tf-pii-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.tf-grid-label {
+    font-size: 9px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.tf-grid-value {
+    border-bottom: 1px solid #000;
+    min-height: 18px;
+    font-family: "Courier New", monospace;
+    font-size: 13px;
+}
+
+/* CA Style specific overrides if needed */
+.ca-header {
+    border-bottom: 3px solid #000;
+}

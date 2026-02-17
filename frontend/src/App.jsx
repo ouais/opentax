@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './index.css';
+import TaxForms from './components/TaxForms';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -14,6 +15,59 @@ function formatCurrency(value) {
 
 function formatPercent(value) {
   return `${value.toFixed(2)}%`;
+}
+
+const FIELD_LABEL_PATTERNS = [
+  'name line', 'street address', 'city or town', 'state or province',
+  'zip code', 'postal code', 'tin', 'taxpayer identification',
+  'recipient', 'account number', 'fatca', 'form 1099', 'corrected',
+  'omb no', 'department of', 'internal revenue', 'payer',
+];
+
+function getInstitutionName(doc) {
+  const raw = doc.data?.payer_name || doc.data?.employer_name || doc.data?.employer || doc.data?.payer || '';
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (FIELD_LABEL_PATTERNS.some(label => lower.includes(label))) return '';
+  if ([...raw].filter(c => /\d/.test(c)).length / raw.length > 0.5) return '';
+  return raw;
+}
+
+const STATE_CONFIG = {
+  CA: { name: 'California' },
+  NY: { name: 'New York' },
+  TX: { name: 'Texas' },
+  FL: { name: 'Florida' },
+  WA: { name: 'Washington' },
+  TN: { name: 'Tennessee' },
+  NV: { name: 'Nevada' },
+  SD: { name: 'South Dakota' },
+  WY: { name: 'Wyoming' },
+  AK: { name: 'Alaska' },
+  NH: { name: 'New Hampshire' },
+};
+
+function getStateName(code) {
+  return STATE_CONFIG[code]?.name || code;
+}
+
+function getStateIcon(code) {
+  return code;
+}
+
+function getFormIcon(formType) {
+  return formType.charAt(0);
+}
+
+function getFormClass(formType) {
+  const classes = {
+    'W-2': 'w2',
+    '1099-INT': 'int',
+    '1099-DIV': 'div',
+    '1099-B': 'b',
+    '1099-NEC': 'nec',
+  };
+  return classes[formType] || '';
 }
 
 // Step Indicator Component
@@ -102,33 +156,13 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
     setUploadedDocs(prev => prev.filter(doc => doc.id !== id));
   };
 
-  const getFormIcon = (formType) => {
-    const icons = {
-      'W-2': '📄',
-      '1099-INT': '💰',
-      '1099-DIV': '📈',
-      '1099-B': '📊',
-      '1099-NEC': '💼',
-    };
-    return icons[formType] || '📋';
-  };
 
-  const getFormClass = (formType) => {
-    const classes = {
-      'W-2': 'w2',
-      '1099-INT': 'int',
-      '1099-DIV': 'div',
-      '1099-B': 'b',
-      '1099-NEC': 'nec',
-    };
-    return classes[formType] || '';
-  };
 
   return (
     <div className="fade-in">
       <div className="card">
         <div className="card-header">
-          <div className="card-icon">📁</div>
+          <div className="card-icon">1</div>
           <div style={{ flex: 1 }}>
             <h2 className="card-title">Upload Tax Documents</h2>
             <p className="card-description">
@@ -139,11 +173,31 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
             <select
               value={formData.tax_year}
               onChange={(e) => setFormData({ ...formData, tax_year: parseInt(e.target.value) })}
-              className="form-control"
+              className="form-select"
               style={{ width: 'auto', fontWeight: 'bold' }}
             >
               <option value={2024}>Tax Year 2024</option>
               <option value={2025}>Tax Year 2025</option>
+            </select>
+          </div>
+          <div className="state-selector" style={{ marginLeft: '10px' }}>
+            <select
+              value={formData.state || 'CA'}
+              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+              className="form-select"
+              style={{ width: 'auto', fontWeight: 'bold' }}
+            >
+              <option value="CA">California</option>
+              <option value="NY">New York</option>
+              <option value="TX">Texas (No Income Tax)</option>
+              <option value="FL">Florida</option>
+              <option value="WA">Washington</option>
+              <option value="TN">Tennessee</option>
+              <option value="NV">Nevada</option>
+              <option value="SD">South Dakota</option>
+              <option value="WY">Wyoming</option>
+              <option value="AK">Alaska</option>
+              <option value="NH">New Hampshire</option>
             </select>
           </div>
         </div>
@@ -164,7 +218,7 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
             onChange={handleFileSelect}
           />
           <div className="upload-zone-icon">
-            {isUploading ? '⏳' : '📤'}
+            {isUploading ? '...' : '↑'}
           </div>
           <p className="upload-zone-title">
             {isUploading ? 'Uploading...' : 'Drop PDF files here or click to browse'}
@@ -183,7 +237,14 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
                 </div>
                 <div className="file-info">
                   <div className="file-name">{doc.filename}</div>
-                  <div className="file-type">Detected: {doc.form_type}</div>
+                  <div className="file-type">
+                    {doc.form_type}
+                    {getInstitutionName(doc) && (
+                      <span style={{ color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                        • {getInstitutionName(doc)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <span className={`file-confidence ${doc.parse_confidence}`}>
                   {doc.parse_confidence}
@@ -256,10 +317,10 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
         // BUT if parser Outputs specific keys (like 'interest_federal_withheld'?), we use them.
         // Currently parsers output 'federal_tax_withheld'. So it's lumped into w2_federal_withheld.
 
-        // Dividends (1099-DIV)
-        aggregated.ordinary_dividends += data.ordinary_dividends || 0;
+        // Dividends (1099-DIV) — parser returns total_ordinary_dividends (Box 1a) and total_capital_gain_dist (Box 2a)
+        aggregated.ordinary_dividends += data.total_ordinary_dividends || data.ordinary_dividends || 0;
         aggregated.qualified_dividends += data.qualified_dividends || 0;
-        aggregated.capital_gain_distributions += data.capital_gain_distributions || 0;
+        aggregated.capital_gain_distributions += data.total_capital_gain_dist || data.capital_gain_distributions || 0;
 
         // Gains (1099-B)
         aggregated.short_term_gains += data.short_term_gains || 0;
@@ -287,7 +348,7 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
     <div className="fade-in">
       <div className="card">
         <div className="card-header">
-          <div className="card-icon">✏️</div>
+          <div className="card-icon">2</div>
           <div>
             <h2 className="card-title">Review & Edit Income</h2>
             <p className="card-description">
@@ -548,7 +609,7 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
 }
 
 // Tax Results Component
-function TaxResults({ results, onBack, onStartOver }) {
+function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewForms, onViewLaws }) {
   if (!results) return null;
 
   const isRefund = results.amount_owed < 0;
@@ -559,223 +620,507 @@ function TaxResults({ results, onBack, onStartOver }) {
   const stateOwed = results.california.total_california_tax - results.total_state_withheld;
 
   return (
-    <div className="fade-in">
-      {/* Summary Card */}
-      <div className="summary-card">
-        <p className="summary-label">
-          {isRefund ? 'Estimated Refund' : 'Estimated Amount Owed'}
-        </p>
-        <p className={`summary-amount ${isRefund ? 'refund' : 'owed'}`}>
-          {formatCurrency(bottomLineAmount)}
-        </p>
+    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '220px 1fr 200px', gap: '24px', alignItems: 'start', padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
 
-        {/* Federal and State Breakdown */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 'var(--space-xl)',
-          marginTop: 'var(--space-md)',
-          flexWrap: 'wrap'
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>🇺🇸 Federal</span>
-            <p style={{
-              fontSize: '1.25rem',
-              fontWeight: 600,
-              color: federalOwed >= 0 ? 'var(--danger)' : 'var(--success)',
-              margin: '0.25rem 0 0 0'
-            }}>
-              {federalOwed >= 0 ? 'Owe ' : 'Refund '}{formatCurrency(Math.abs(federalOwed))}
-            </p>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>🐻 California</span>
-            <p style={{
-              fontSize: '1.25rem',
-              fontWeight: 600,
-              color: stateOwed >= 0 ? 'var(--danger)' : 'var(--success)',
-              margin: '0.25rem 0 0 0'
-            }}>
-              {stateOwed >= 0 ? 'Owe ' : 'Refund '}{formatCurrency(Math.abs(stateOwed))}
-            </p>
+      {/* LEFT COLUMN - Source Documents */}
+      <div className="no-print" style={{ position: 'sticky', top: '90px' }}>
+        <div className="card" style={{ padding: '16px' }}>
+          <h3 className="card-title" style={{ fontSize: '1rem', marginBottom: '12px' }}>Source Documents</h3>
+          {uploadedDocs && uploadedDocs.length > 0 ? (
+            <div>
+              {uploadedDocs.map(doc => (
+                <div key={doc.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: '8px',
+                  marginBottom: '8px',
+                  fontSize: '0.85rem'
+                }}>
+                  <div className={`file-icon ${getFormClass(doc.form_type)}`} style={{ fontSize: '1.1rem' }}>
+                    {getFormIcon(doc.form_type)}
+                  </div>
+                  <div style={{ overflow: 'hidden' }}>
+                    <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {getInstitutionName(doc) || doc.form_type}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {doc.form_type} • {doc.filename}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontStyle: 'italic' }}>
+              No documents uploaded (Manual Entry)
+            </div>
+          )}
+          <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid var(--border-color)' }}>
+            <button className="btn btn-secondary btn-sm" style={{ width: '100%', fontSize: '0.85rem' }} onClick={onBack}>
+              ← Edit Income
+            </button>
           </div>
         </div>
-
-        <p className="summary-note" style={{ marginTop: 'var(--space-md)' }}>
-          Based on {results.tax_year || 2024} federal and California tax rates • Filing Single • Standard Deduction
-        </p>
       </div>
 
-      {/* Income Summary */}
-      <div className="results-grid">
-        <div className="result-card">
-          <div className="result-card-header">
-            <span className="result-card-title">Gross Income</span>
-          </div>
-          <p className="result-card-value">{formatCurrency(results.gross_income)}</p>
-        </div>
+      {/* CENTER COLUMN - Tax Report */}
+      <div>
 
-        <div className="result-card">
-          <div className="result-card-header">
-            <span className="result-card-title">Total Tax Withheld</span>
+        {/* Summary Card */}
+        <div className="summary-card">
+          <p className="summary-label">
+            {isRefund ? 'Estimated Refund' : 'Estimated Amount Owed'}
+          </p>
+          <p className={`summary-amount ${isRefund ? 'refund' : 'owed'}`}>
+            {formatCurrency(bottomLineAmount)}
+          </p>
+
+          {/* Federal and State Breakdown */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: 'var(--space-xl)',
+            marginTop: 'var(--space-md)',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Federal</span>
+              <p style={{
+                fontSize: '1.25rem',
+                fontWeight: 600,
+                color: federalOwed >= 0 ? 'var(--danger)' : 'var(--success)',
+                margin: '0.25rem 0 0 0'
+              }}>
+                {federalOwed >= 0 ? 'Owe ' : 'Refund '}{formatCurrency(Math.abs(federalOwed))}
+              </p>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{getStateName(state)}</span>
+              <p style={{
+                fontSize: '1.25rem',
+                fontWeight: 600,
+                color: stateOwed >= 0 ? 'var(--danger)' : 'var(--success)',
+                margin: '0.25rem 0 0 0'
+              }}>
+                {stateOwed >= 0 ? 'Owe ' : 'Refund '}{formatCurrency(Math.abs(stateOwed))}
+              </p>
+            </div>
           </div>
-          <p className="result-card-value">{formatCurrency(results.total_withheld)}</p>
-          <p className="result-card-subtitle">
-            Federal: {formatCurrency(results.total_federal_withheld)} • State: {formatCurrency(results.total_state_withheld)}
+
+          <p className="summary-note" style={{ marginTop: 'var(--space-md)' }}>
+            Based on {results.tax_year || 2024} federal and California tax rates • Filing Single • Standard Deduction
           </p>
         </div>
 
-        <div className="result-card">
-          <div className="result-card-header">
-            <span className="result-card-title">Total Tax Liability</span>
+        {/* Income Summary */}
+        <div className="results-grid">
+          <div className="result-card">
+            <div className="result-card-header">
+              <span className="result-card-title">Gross Income</span>
+            </div>
+            <p className="result-card-value">{formatCurrency(results.gross_income)}</p>
+            <div style={{ marginTop: 'var(--space-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+              {results.total_wages > 0 && <div>Wages: {formatCurrency(results.total_wages)}</div>}
+              {results.total_interest > 0 && <div>Interest: {formatCurrency(results.total_interest)}</div>}
+              {results.total_dividends > 0 && (
+                <div>
+                  Dividends: {formatCurrency(results.total_dividends)}
+                  {results.federal?.qualified_dividends > 0 && (
+                    <span style={{ opacity: 0.7 }}> (Qualified: {formatCurrency(results.federal.qualified_dividends)})</span>
+                  )}
+                </div>
+              )}
+              {results.total_capital_gains !== 0 && <div>Capital Gains: {formatCurrency(results.total_capital_gains)}</div>}
+              {results.total_self_employment > 0 && <div>Self-Employment: {formatCurrency(results.total_self_employment)}</div>}
+            </div>
           </div>
-          <p className="result-card-value">{formatCurrency(results.total_tax_liability)}</p>
-        </div>
-      </div>
 
-      {/* Federal Tax Breakdown */}
-      <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
-        <div className="card-header">
-          <div className="card-icon">🇺🇸</div>
-          <div>
-            <h2 className="card-title">Federal Tax Breakdown</h2>
-            <p className="card-description">
-              Effective Rate: {formatPercent(results.federal.effective_rate)} •
-              Marginal Rate: {formatPercent(results.federal.marginal_rate)}
+          <div className="result-card">
+            <div className="result-card-header">
+              <span className="result-card-title">Total Tax Withheld</span>
+            </div>
+            <p className="result-card-value">{formatCurrency(results.total_withheld)}</p>
+            <p className="result-card-subtitle">
+              Federal: {formatCurrency(results.total_federal_withheld)} • State: {formatCurrency(results.total_state_withheld)}
             </p>
           </div>
+
+          <div className="result-card">
+            <div className="result-card-header">
+              <span className="result-card-title">Total Tax Liability</span>
+            </div>
+            <p className="result-card-value">{formatCurrency(results.total_tax_liability)}</p>
+          </div>
         </div>
 
-        <table className="breakdown-table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th style={{ textAlign: 'right' }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Gross Income</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.gross_income)}</td>
-            </tr>
-            <tr>
-              <td>Standard Deduction (Single)</td>
-              <td style={{ textAlign: 'right' }}>-{formatCurrency(results.federal.standard_deduction)}</td>
-            </tr>
-            <tr>
-              <td>Federal Taxable Income</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.taxable_income)}</td>
-            </tr>
-            <tr>
-              <td>Ordinary Income Tax</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.ordinary_income_tax)}</td>
-            </tr>
-            {results.federal.capital_gains_tax > 0 && (
-              <tr>
-                <td>Capital Gains Tax</td>
-                <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.capital_gains_tax)}</td>
-              </tr>
-            )}
-            {results.federal.self_employment_tax > 0 && (
-              <tr>
-                <td>Self-Employment Tax</td>
-                <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.self_employment_tax)}</td>
-              </tr>
-            )}
-            <tr className="total-row">
-              <td><strong>Total Federal Tax</strong></td>
-              <td style={{ textAlign: 'right' }}><strong>{formatCurrency(results.federal.total_federal_tax)}</strong></td>
-            </tr>
-          </tbody>
-        </table>
+        {/* Federal Tax Breakdown */}
+        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
+          <div className="card-header">
+            <div className="card-icon">F</div>
+            <div>
+              <h2 className="card-title">Federal Tax Breakdown</h2>
+              <p className="card-description">
+                Effective Rate: {formatPercent(results.federal.effective_rate)} •
+                Marginal Rate: {formatPercent(results.federal.marginal_rate)}
+              </p>
+            </div>
+          </div>
 
-        {results.federal.bracket_breakdown?.length > 0 && (
-          <>
-            <h4 style={{ marginTop: 'var(--space-lg)', marginBottom: 'var(--space-sm)', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              Tax Bracket Breakdown
-            </h4>
-            <table className="breakdown-table">
-              <thead>
+          <table className="breakdown-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Gross Income</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.gross_income)}</td>
+              </tr>
+              <tr>
+                <td>Standard Deduction (Single)</td>
+                <td style={{ textAlign: 'right' }}>-{formatCurrency(results.federal.standard_deduction)}</td>
+              </tr>
+              <tr>
+                <td>Federal Taxable Income</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.taxable_income)}</td>
+              </tr>
+              <tr>
+                <td>Ordinary Income Tax</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.ordinary_income_tax)}</td>
+              </tr>
+              {results.federal.capital_gains_tax > 0 && (
                 <tr>
-                  <th>Bracket</th>
-                  <th>Rate</th>
-                  <th style={{ textAlign: 'right' }}>Income</th>
-                  <th style={{ textAlign: 'right' }}>Tax</th>
+                  <td>Capital Gains Tax</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.capital_gains_tax)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {results.federal.bracket_breakdown.map((bracket, i) => (
-                  <tr key={i}>
-                    <td>{formatCurrency(bracket.range_start)} - {formatCurrency(bracket.range_end)}</td>
-                    <td>{formatPercent(bracket.rate * 100)}</td>
-                    <td style={{ textAlign: 'right' }}>{formatCurrency(bracket.income_in_bracket)}</td>
-                    <td style={{ textAlign: 'right' }}>{formatCurrency(bracket.tax_in_bracket)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </div>
+              )}
+              {results.federal.self_employment_tax > 0 && (
+                <tr>
+                  <td>Self-Employment Tax</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.self_employment_tax)}</td>
+                </tr>
+              )}
+              {results.federal.additional_medicare_tax > 0 && (
+                <tr>
+                  <td>Additional Medicare Tax</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.additional_medicare_tax)}</td>
+                </tr>
+              )}
+              <tr className="total-row">
+                <td><strong>Total Federal Tax</strong></td>
+                <td style={{ textAlign: 'right' }}><strong>{formatCurrency(results.federal.total_federal_tax)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
 
-      {/* California Tax Breakdown */}
-      <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
-        <div className="card-header">
-          <div className="card-icon">🐻</div>
-          <div>
-            <h2 className="card-title">California Tax Breakdown</h2>
-            <p className="card-description">
-              Effective Rate: {formatPercent(results.california.effective_rate)} •
-              Marginal Rate: {formatPercent(results.california.marginal_rate)}
-            </p>
-          </div>
+          {results.federal.bracket_breakdown?.length > 0 && (
+            <>
+              <h4 style={{ marginTop: 'var(--space-lg)', marginBottom: 'var(--space-sm)', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                Tax Bracket Breakdown
+              </h4>
+              <table className="breakdown-table">
+                <thead>
+                  <tr>
+                    <th>Bracket</th>
+                    <th>Rate</th>
+                    <th style={{ textAlign: 'right' }}>Income</th>
+                    <th style={{ textAlign: 'right' }}>Tax</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.federal.bracket_breakdown.map((bracket, i) => (
+                    <tr key={i}>
+                      <td>{formatCurrency(bracket.range_start)} - {formatCurrency(bracket.range_end)}</td>
+                      <td>{formatPercent(bracket.rate * 100)}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(bracket.income_in_bracket)}</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(bracket.tax_in_bracket)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
 
-        <table className="breakdown-table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th style={{ textAlign: 'right' }}>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Gross Income</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.gross_income)}</td>
-            </tr>
-            <tr>
-              <td>Standard Deduction (Single)</td>
-              <td style={{ textAlign: 'right' }}>-{formatCurrency(results.california.standard_deduction)}</td>
-            </tr>
-            <tr>
-              <td>California Taxable Income</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.taxable_income)}</td>
-            </tr>
-            <tr>
-              <td>State Income Tax</td>
-              <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.state_tax)}</td>
-            </tr>
-            {results.california.mental_health_surcharge > 0 && (
+        {/* State Tax Breakdown */}
+        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
+          <div className="card-header">
+            <div className="card-icon">{getStateIcon(state)}</div>
+            <div>
+              <h2 className="card-title">{getStateName(state)} Tax Breakdown</h2>
+              <p className="card-description">
+                Effective Rate: {formatPercent(results.california.effective_rate)} •
+                Marginal Rate: {formatPercent(results.california.marginal_rate)}
+              </p>
+            </div>
+          </div>
+
+          <table className="breakdown-table">
+            <thead>
               <tr>
-                <td>Mental Health Services Tax</td>
-                <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.mental_health_surcharge)}</td>
+                <th>Description</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
               </tr>
-            )}
-            <tr className="total-row">
-              <td><strong>Total California Tax</strong></td>
-              <td style={{ textAlign: 'right' }}><strong>{formatCurrency(results.california.total_california_tax)}</strong></td>
-            </tr>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Gross Income</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.gross_income)}</td>
+              </tr>
+              <tr>
+                <td>Standard Deduction (Single)</td>
+                <td style={{ textAlign: 'right' }}>-{formatCurrency(results.california.standard_deduction)}</td>
+              </tr>
+              <tr>
+                <td>California Taxable Income</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.taxable_income)}</td>
+              </tr>
+              <tr>
+                <td>State Income Tax</td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.state_tax)}</td>
+              </tr>
+              {results.california.mental_health_surcharge > 0 && (
+                <tr>
+                  <td>Mental Health Services Tax</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(results.california.mental_health_surcharge)}</td>
+                </tr>
+              )}
+              <tr className="total-row">
+                <td><strong>Total California Tax</strong></td>
+                <td style={{ textAlign: 'right' }}><strong>{formatCurrency(results.california.total_california_tax)}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="btn-group">
-        <button className="btn btn-secondary" onClick={onBack}>
-          ← Edit Income
+      {/* RIGHT COLUMN - Action Buttons */}
+      <div className="no-print" style={{ position: 'sticky', top: '90px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <button className="side-panel-btn primary" onClick={onViewForms}>
+          <span className="btn-icon" style={{ fontSize: '1rem', fontWeight: 700 }}>PDF</span>
+          <span className="btn-text">
+            <span className="btn-label">Generate Forms</span>
+            <span className="btn-desc">Download 1040 PDF</span>
+          </span>
         </button>
-        <button className="btn btn-primary" onClick={onStartOver}>
-          Start Over
+
+        <button className="side-panel-btn primary" onClick={onViewLaws}>
+          <span className="btn-icon" style={{ fontSize: '1rem', fontWeight: 700 }}>IRC</span>
+          <span className="btn-text">
+            <span className="btn-label">Tax Law Breakdown</span>
+            <span className="btn-desc">See which laws apply</span>
+          </span>
         </button>
+
+        <div className="side-panel-divider" />
+
+        <button className="side-panel-btn" onClick={onBack}>
+
+          <span className="btn-text">
+            <span className="btn-label">Edit Income</span>
+          </span>
+        </button>
+
+        <button className="side-panel-btn" onClick={onStartOver}>
+
+          <span className="btn-text">
+            <span className="btn-label">Start Over</span>
+          </span>
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
+// Tax Law Breakdown Component
+function TaxLawBreakdown({ results, state, onBack }) {
+  if (!results) return null;
+
+  const fed = results.federal;
+  const cal = results.california;
+
+  // Build the list of laws with their dollar impact
+  const buildLawEntries = () => {
+    const entries = [];
+
+    // Federal deduction
+    if (fed.standard_deduction > 0) {
+      // Estimate tax savings from standard deduction using marginal rate
+      const deductionSavings = fed.standard_deduction * (fed.marginal_rate / 100);
+      entries.push({
+        name: 'Standard Deduction',
+        cite: 'IRC §63 — Tax Cuts and Jobs Act of 2017',
+        desc: `$${fed.standard_deduction.toLocaleString()} deduction reduces taxable income`,
+        amount: -deductionSavings,
+        type: 'deduction',
+        icon: '—',
+        section: 'Federal Deductions',
+      });
+    }
+
+    // Federal bracket taxes
+    if (fed.bracket_breakdown?.length > 0) {
+      fed.bracket_breakdown.forEach((bracket) => {
+        const rate = (bracket.rate * 100).toFixed(0);
+        entries.push({
+          name: `${rate}% Income Tax Bracket`,
+          cite: 'IRC §1(j)(2)(A) — Federal Income Tax',
+          desc: `${formatCurrency(bracket.income_in_bracket)} taxed at ${rate}%`,
+          amount: bracket.tax_in_bracket,
+          type: 'tax',
+          icon: '§',
+          section: 'Federal Income Tax',
+        });
+      });
+    }
+
+    // Capital gains tax
+    if (fed.capital_gains_tax > 0) {
+      entries.push({
+        name: 'Preferential Capital Gains Rate',
+        cite: 'IRC §1(h) — Long-term capital gains & qualified dividends',
+        desc: 'Lower rate for long-term gains and qualified dividends',
+        amount: fed.capital_gains_tax,
+        type: 'tax',
+        icon: '§',
+        section: 'Federal Income Tax',
+      });
+    }
+
+    // Self-employment tax
+    if (fed.self_employment_tax > 0) {
+      entries.push({
+        name: 'Self-Employment Tax (SECA)',
+        cite: 'IRC §1401 — Social Security & Medicare',
+        desc: '15.3% on net self-employment income (12.4% SS + 2.9% Medicare)',
+        amount: fed.self_employment_tax,
+        type: 'tax',
+        icon: '§',
+        section: 'Federal Payroll & Other Taxes',
+      });
+    }
+
+    // Additional Medicare Tax
+    if (fed.additional_medicare_tax > 0) {
+      entries.push({
+        name: 'Additional Medicare Tax',
+        cite: 'IRC §3101(b)(2) — Affordable Care Act (2010)',
+        desc: '0.9% on earnings over $200,000 (single)',
+        amount: fed.additional_medicare_tax,
+        type: 'tax',
+        icon: '§',
+        section: 'Federal Payroll & Other Taxes',
+      });
+    }
+
+    // California state tax
+    if (cal.state_tax > 0) {
+      entries.push({
+        name: 'California Income Tax',
+        cite: 'CA Rev. & Tax. Code §17041',
+        desc: `Progressive rates from 1% to 12.3% on CA taxable income`,
+        amount: cal.state_tax,
+        type: 'tax',
+        icon: '§',
+        section: `${getStateName(state)} Taxes`,
+      });
+    }
+
+    // California mental health surcharge
+    if (cal.mental_health_surcharge > 0) {
+      entries.push({
+        name: 'Mental Health Services Tax',
+        cite: 'Proposition 63 (2004) — Mental Health Services Act',
+        desc: '1% surcharge on income over $1,000,000',
+        amount: cal.mental_health_surcharge,
+        type: 'tax',
+        icon: '§',
+        section: `${getStateName(state)} Taxes`,
+      });
+    }
+
+    // California deduction
+    if (cal.standard_deduction > 0) {
+      const stateDeductionSavings = cal.standard_deduction * (cal.marginal_rate / 100);
+      entries.push({
+        name: 'CA Standard Deduction',
+        cite: 'CA Rev. & Tax. Code §17073.5',
+        desc: `$${cal.standard_deduction.toLocaleString()} CA deduction`,
+        amount: -stateDeductionSavings,
+        type: 'deduction',
+        icon: '—',
+        section: `${getStateName(state)} Deductions`,
+      });
+    }
+
+    return entries;
+  };
+
+  const entries = buildLawEntries();
+  const totalTax = results.total_tax_liability;
+
+  // Group by section, preserving order
+  const sections = [];
+  const sectionMap = {};
+  entries.forEach((entry) => {
+    if (!sectionMap[entry.section]) {
+      sectionMap[entry.section] = [];
+      sections.push(entry.section);
+    }
+    sectionMap[entry.section].push(entry);
+  });
+
+  // Sort within each section by absolute amount (largest first)
+  sections.forEach((s) => {
+    sectionMap[s].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  });
+
+  return (
+    <div className="fade-in">
+      <div className="no-print" style={{ marginBottom: '20px' }}>
+        <button className="btn btn-secondary" onClick={onBack}>← Back to Results</button>
+      </div>
+
+      <div className="law-breakdown">
+        <div className="law-breakdown-header">
+          <h2>Tax Law Breakdown</h2>
+          <p>Every dollar of your tax bill, traced to the law that created it</p>
+        </div>
+
+        <div className="law-breakdown-total">
+          <div className="total-label">Total Tax Liability</div>
+          <div className="total-amount">{formatCurrency(totalTax)}</div>
+          <p className="summary-note">
+            Federal: {formatCurrency(fed.total_federal_tax)} + {getStateName(state)}: {formatCurrency(cal.total_california_tax)}
+          </p>
+        </div>
+
+        {sections.map((section) => (
+          <div key={section} className="law-section">
+            <div className="law-section-title">{section}</div>
+            {sectionMap[section].map((entry, i) => (
+              <div key={i} className="law-card">
+                <div className={`law-card-icon ${entry.type}`}>
+                  {entry.icon}
+                </div>
+                <div className="law-card-body">
+                  <div className="law-card-name">{entry.name}</div>
+                  <div className="law-card-cite">{entry.cite}</div>
+                  <div className="law-card-desc">{entry.desc}</div>
+                </div>
+                <div className={`law-card-amount ${entry.type}`}>
+                  {entry.amount < 0 ? '-' : '+'}{formatCurrency(Math.abs(entry.amount))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -802,6 +1147,8 @@ function App() {
     long_term_gains: 0,
     self_employment_income: 0,
     self_employment_federal_withheld: 0,
+    estimated_tax_payments: 0,
+    other_withholding: 0,
   });
   const [results, setResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -809,10 +1156,18 @@ function App() {
   const handleCalculate = async () => {
     setIsCalculating(true);
     try {
+      // Sanitize inputs: Convert empty strings to 0 and ensure numbers
+      const sanitizedData = Object.fromEntries(
+        Object.entries(formData).map(([key, val]) => [
+          key,
+          (val === '' || val === null || val === undefined) ? 0 : Number(val)
+        ])
+      );
+
       const response = await fetch(`${API_BASE}/api/calculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(sanitizedData),
       });
 
       if (response.ok) {
@@ -846,6 +1201,8 @@ function App() {
       long_term_gains: 0,
       self_employment_income: 0,
       self_employment_federal_withheld: 0,
+      estimated_tax_payments: 0,
+      other_withholding: 0,
     });
     setResults(null);
   };
@@ -855,10 +1212,8 @@ function App() {
       <header className="app-header">
         <div className="header-content">
           <div className="app-logo">
-            <span style={{ fontSize: '1.75rem' }}>🧮</span>
             <div>
-              <h1 className="app-title">Tax Calculator 2025</h1>
-              <p className="app-subtitle">Federal & California • Single Filer</p>
+              <h1 className="app-title">OpenTax</h1>
             </div>
           </div>
         </div>
@@ -891,11 +1246,54 @@ function App() {
         {step === 3 && (
           <TaxResults
             results={results}
+            state={formData.state || 'CA'}
+            uploadedDocs={uploadedDocs}
             onBack={() => setStep(2)}
             onStartOver={handleStartOver}
+            onViewForms={() => setStep(4)}
+            onViewLaws={() => setStep(5)}
+          />
+        )}
+
+        {step === 4 && (
+          <div className="fade-in">
+            <div className="no-print" style={{ marginBottom: '20px', padding: '0 20px' }}>
+              <button className="btn btn-secondary" onClick={() => setStep(3)}>← Back to Results</button>
+            </div>
+            <TaxForms results={results} formData={formData} />
+          </div>
+        )}
+
+        {step === 5 && (
+          <TaxLawBreakdown
+            results={results}
+            state={formData.state || 'CA'}
+            onBack={() => setStep(3)}
           />
         )}
       </main>
+
+      <footer style={{
+        textAlign: 'center',
+        padding: 'var(--space-lg) var(--space-md)',
+        color: 'var(--text-muted)',
+        fontSize: '0.75rem',
+        lineHeight: 1.6,
+        borderTop: '1px solid var(--border-color)',
+        marginTop: 'var(--space-xl)',
+      }}>
+        <p style={{ marginBottom: '4px' }}>
+          <strong>OpenTax is currently in beta.</strong> Calculations may contain errors.
+        </p>
+        <p>
+          This tool is for informational purposes only and does not constitute tax advice.
+          Always consult a qualified tax professional before filing.
+        </p>
+        <p style={{ marginTop: '4px' }}>
+          Document uploads are processed using Google's Gemini API to extract data from your tax forms.
+          No data is stored. All calculations run locally.
+        </p>
+      </footer>
     </div>
   );
 }

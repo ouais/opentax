@@ -9,13 +9,17 @@ Implements federal income tax calculation including:
 - Additional Medicare Tax (0.9% on wages over $200k)
 """
 
+
 from typing import TypedDict
+from .utils import calculate_tax_from_brackets
 
 
 class FederalTaxResult(TypedDict):
     """Result of federal tax calculation."""
     gross_income: float
     standard_deduction: float
+    itemized_deductions: float
+    foreign_income: float
     taxable_income: float
     ordinary_income_tax: float
     capital_gains_tax: float
@@ -77,48 +81,7 @@ SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE = 200000
 DEFAULT_TAX_YEAR = 2024
 
 
-def calculate_tax_from_brackets(
-    taxable_income: float,
-    brackets: list[tuple[float, float]],
-) -> tuple[float, float, list[dict]]:
-    """
-    Calculate tax using progressive tax brackets.
-    
-    Args:
-        taxable_income: The taxable income amount
-        brackets: List of (upper_limit, rate) tuples
-        
-    Returns:
-        Tuple of (total_tax, marginal_rate, bracket_breakdown)
-    """
-    if taxable_income <= 0:
-        return 0.0, brackets[0][1], []
-    
-    total_tax = 0.0
-    previous_limit = 0.0
-    marginal_rate = 0.0
-    breakdown = []
-    
-    for upper_limit, rate in brackets:
-        if taxable_income <= previous_limit:
-            break
-            
-        bracket_income = min(taxable_income, upper_limit) - previous_limit
-        if bracket_income > 0:
-            tax_in_bracket = bracket_income * rate
-            total_tax += tax_in_bracket
-            marginal_rate = rate
-            breakdown.append({
-                'range_start': previous_limit,
-                'range_end': min(taxable_income, upper_limit),
-                'rate': rate,
-                'income_in_bracket': bracket_income,
-                'tax_in_bracket': tax_in_bracket,
-            })
-        
-        previous_limit = upper_limit
-    
-    return total_tax, marginal_rate, breakdown
+# calculate_tax_from_brackets moved to utils.py
 
 
 def calculate_capital_gains_tax(
@@ -220,6 +183,8 @@ def calculate_federal_tax(
     short_term_gains: float = 0.0,
     long_term_gains: float = 0.0,
     self_employment_income: float = 0.0,
+    foreign_income: float = 0.0,
+    itemized_deductions: float = 0.0,
     w2_social_security_wages: float = 0.0,
     tax_year: int = DEFAULT_TAX_YEAR,
 ) -> FederalTaxResult:
@@ -234,6 +199,8 @@ def calculate_federal_tax(
         short_term_gains: Short-term capital gains (taxed as ordinary income)
         long_term_gains: Long-term capital gains
         self_employment_income: 1099-NEC income
+        foreign_income: Foreign earned income (added to Gross)
+        itemized_deductions: Total Schedule A deductions
         w2_social_security_wages: Box 3 from W-2s (for SE tax calculation)
         tax_year: The tax year (2024 or 2025)
         
@@ -285,7 +252,8 @@ def calculate_federal_tax(
         ordinary_dividends +
         qualified_dividends +
         gross_income_capital_component +
-        self_employment_income
+        self_employment_income +
+        foreign_income
     )
     
     # Self-employment deduction (half of SE tax)
@@ -299,31 +267,25 @@ def calculate_federal_tax(
     # Adjusted Gross Income
     agi = gross_income - se_deduction
     
-    # Apply standard deduction
+    # Apply deductions (Standard vs Itemized)
     standard_deduction = rates['standard_deduction']
-    taxable_income_before_preferential = max(0, agi - standard_deduction)
+    total_deductions = max(standard_deduction, itemized_deductions)
     
-    # Ordinary income (taxed at regular rates)
-    ordinary_income = (
-        wages +
-        interest_income +
-        ordinary_dividends +  # Non-qualified dividends
-        taxable_ordinary_capital_gain + # Net ST gain or deductible loss
-        self_employment_income -
-        se_deduction -
-        standard_deduction
-    )
-    ordinary_income = max(0, ordinary_income)
+    taxable_income = max(0, agi - total_deductions)
+    
+    # Ordinary Taxable Income
+    preferential_income = qualified_dividends + taxable_preferential_capital_gain
+    ordinary_taxable_income = max(0.0, taxable_income - preferential_income)
     
     # Calculate ordinary income tax
     ordinary_tax, marginal_rate, bracket_breakdown = calculate_tax_from_brackets(
-        ordinary_income,
+        ordinary_taxable_income,
         rates['brackets'],
     )
     
     # Calculate capital gains tax (on LTCG + qualified dividends)
     capital_gains_tax = calculate_capital_gains_tax(
-        ordinary_income,
+        ordinary_taxable_income,
         taxable_preferential_capital_gain, # Net LT gain
         qualified_dividends,
         tax_year,
@@ -344,9 +306,19 @@ def calculate_federal_tax(
     effective_rate = (total_federal_tax / gross_income * 100) if gross_income > 0 else 0.0
     
     return {
+        'wages': wages,
+        'interest_income': interest_income,
+        'ordinary_dividends': ordinary_dividends,
+        'qualified_dividends': qualified_dividends,
+        'total_ordinary_dividends': ordinary_dividends + qualified_dividends,
+        'capital_gains': gross_income_capital_component,
+        'total_income': gross_income,
+        'adjusted_gross_income': agi,
         'gross_income': gross_income,
         'standard_deduction': standard_deduction,
-        'taxable_income': taxable_income_before_preferential,
+        'itemized_deductions': itemized_deductions,
+        'foreign_income': foreign_income,
+        'taxable_income': taxable_income,
         'ordinary_income_tax': ordinary_tax,
         'capital_gains_tax': capital_gains_tax,
         'self_employment_tax': se_tax_total,

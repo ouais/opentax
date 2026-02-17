@@ -5,6 +5,7 @@ Implements California state income tax calculation.
 """
 
 from typing import TypedDict
+from ..utils import calculate_tax_from_brackets
 
 
 class CaliforniaTaxResult(TypedDict):
@@ -60,48 +61,7 @@ CA_MENTAL_HEALTH_RATE = 0.01
 DEFAULT_TAX_YEAR = 2024
 
 
-def calculate_tax_from_brackets(
-    taxable_income: float,
-    brackets: list[tuple[float, float]],
-) -> tuple[float, float, list[dict]]:
-    """
-    Calculate tax using progressive tax brackets.
-    
-    Args:
-        taxable_income: The taxable income amount
-        brackets: List of (upper_limit, rate) tuples
-        
-    Returns:
-        Tuple of (total_tax, marginal_rate, bracket_breakdown)
-    """
-    if taxable_income <= 0:
-        return 0.0, brackets[0][1], []
-    
-    total_tax = 0.0
-    previous_limit = 0.0
-    marginal_rate = 0.0
-    breakdown = []
-    
-    for upper_limit, rate in brackets:
-        if taxable_income <= previous_limit:
-            break
-            
-        bracket_income = min(taxable_income, upper_limit) - previous_limit
-        if bracket_income > 0:
-            tax_in_bracket = bracket_income * rate
-            total_tax += tax_in_bracket
-            marginal_rate = rate
-            breakdown.append({
-                'range_start': previous_limit,
-                'range_end': min(taxable_income, upper_limit),
-                'rate': rate,
-                'income_in_bracket': bracket_income,
-                'tax_in_bracket': tax_in_bracket,
-            })
-        
-        previous_limit = upper_limit
-    
-    return total_tax, marginal_rate, breakdown
+# calculate_tax_from_brackets moved to utils.py
 
 
 def calculate_california_tax(
@@ -172,3 +132,40 @@ def calculate_california_tax(
         'marginal_rate': marginal_rate * 100,
         'bracket_breakdown': bracket_breakdown,
     }
+
+
+from ..state_interface import StateTaxCalculator, StateTaxInput, StateTaxResult
+
+class CaliforniaStateCalculator(StateTaxCalculator):
+    def calculate(self, tax_input: StateTaxInput) -> StateTaxResult:
+        # Call Existing Logic
+        res = calculate_california_tax(
+            wages=tax_input.get('wages', 0.0),
+            interest_income=tax_input.get('interest_income', 0.0),
+            dividend_income=tax_input.get('dividend_income', 0.0),
+            capital_gains=tax_input.get('capital_gains', 0.0),
+            self_employment_income=tax_input.get('self_employment_income', 0.0),
+            tax_year=tax_input.get('tax_year', 2024)
+        )
+        
+        # Map to Generic Result
+        return {
+            "total_taxable_income": res['taxable_income'],
+            "total_state_tax": res['total_california_tax'],
+            "standard_deduction": res['standard_deduction'],
+            # Preserve CA specific fields (Legacy for Frontend)
+            "gross_income": res['gross_income'],
+            "taxable_income": res['taxable_income'],
+            "state_tax": res['state_tax'],
+            "mental_health_surcharge": res['mental_health_surcharge'],
+            "total_california_tax": res['total_california_tax'],
+            "mental_health_tax": res['mental_health_surcharge'],
+            "bracket_breakdown": res['bracket_breakdown'],
+            "effective_rate": res['effective_rate'],
+            "marginal_rate": res['marginal_rate'],
+            "exemption_credit": 0.0
+        }
+
+    def get_standard_deduction(self, filing_status: str, tax_year: int) -> float:
+        rates = CA_TAX_RATES.get(tax_year, CA_TAX_RATES[2024])
+        return rates['standard_deduction']

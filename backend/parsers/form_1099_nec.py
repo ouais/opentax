@@ -6,6 +6,7 @@ Extracts nonemployee compensation from 1099-NEC forms.
 
 import re
 import pdfplumber
+from .utils import extract_payer_from_fields, extract_payer_name_from_text
 
 
 def parse_1099_nec(pdf_path: str) -> dict:
@@ -56,11 +57,10 @@ def parse_1099_nec(pdf_path: str) -> dict:
                         fields_found += 1
                         break
             
-            # Try to extract payer name
-            payer_pattern = r'(?:PAYER.S?\s*name|Payer)[^\n]*\n([A-Z][A-Za-z0-9\s,\.]+)'
-            payer_match = re.search(payer_pattern, full_text, re.IGNORECASE)
-            if payer_match:
-                result['payer_name'] = payer_match.group(1).strip()[:100]
+            # Try to extract payer name: first from form fields, then text
+            result['payer_name'] = extract_payer_from_fields(pdf)
+            if not result['payer_name']:
+                result['payer_name'] = extract_payer_name_from_text(full_text)
             
             if result['nonemployee_compensation'] > 0:
                 result['parse_confidence'] = 'high'
