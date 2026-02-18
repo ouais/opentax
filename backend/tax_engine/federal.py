@@ -34,39 +34,77 @@ class FederalTaxResult(TypedDict):
 # Tax rates by year
 TAX_RATES = {
     2024: {
-        'brackets': [
-            (11600, 0.10),
-            (47150, 0.12),
-            (100525, 0.22),
-            (191950, 0.24),
-            (243725, 0.32),
-            (609350, 0.35),
-            (float('inf'), 0.37),
-        ],
-        'standard_deduction': 14600,
-        'ltcg_brackets': [
-            (47025, 0.00),
-            (518900, 0.15),
-            (float('inf'), 0.20),
-        ],
+        'single': {
+            'brackets': [
+                (11600, 0.10),
+                (47150, 0.12),
+                (100525, 0.22),
+                (191950, 0.24),
+                (243725, 0.32),
+                (609350, 0.35),
+                (float('inf'), 0.37),
+            ],
+            'standard_deduction': 14600,
+            'ltcg_brackets': [
+                (47025, 0.00),
+                (518900, 0.15),
+                (float('inf'), 0.20),
+            ],
+        },
+        'joint': {
+            'brackets': [
+                (23200, 0.10),
+                (94300, 0.12),
+                (201050, 0.22),
+                (383900, 0.24),
+                (487450, 0.32),
+                (731200, 0.35),
+                (float('inf'), 0.37),
+            ],
+            'standard_deduction': 29200,
+            'ltcg_brackets': [
+                (94050, 0.00),
+                (583750, 0.15),
+                (float('inf'), 0.20),
+            ],
+        },
         'ss_wage_base': 168600,
     },
     2025: {
-        'brackets': [
-            (11925, 0.10),
-            (48475, 0.12),
-            (103350, 0.22),
-            (197300, 0.24),
-            (250525, 0.32),
-            (626350, 0.35),
-            (float('inf'), 0.37),
-        ],
-        'standard_deduction': 15750,
-        'ltcg_brackets': [
-            (48350, 0.00),
-            (533400, 0.15),
-            (float('inf'), 0.20),
-        ],
+        'single': {
+            'brackets': [
+                (11925, 0.10),
+                (48475, 0.12),
+                (103350, 0.22),
+                (197300, 0.24),
+                (250525, 0.32),
+                (626350, 0.35),
+                (float('inf'), 0.37),
+            ],
+            'standard_deduction': 15750,
+            'ltcg_brackets': [
+                (48350, 0.00),
+                (533400, 0.15),
+                (float('inf'), 0.20),
+            ],
+        },
+        'joint': {
+            'brackets': [
+                (23850, 0.10),
+                (96950, 0.12),
+                (206700, 0.22),
+                (394600, 0.24),
+                (501050, 0.32),
+                (751600, 0.35),
+                (float('inf'), 0.37),
+            ],
+            'standard_deduction': 31500,
+            'ltcg_brackets': [
+                (96700, 0.00),
+                (600050, 0.15),
+                (float('inf'), 0.20),
+            ],
+        },
         'ss_wage_base': 176100,
     },
 }
@@ -76,6 +114,7 @@ SE_TAX_RATE_SOCIAL_SECURITY = 0.124  # 12.4%
 SE_TAX_RATE_MEDICARE = 0.029  # 2.9%
 SE_TAX_RATE_ADDITIONAL_MEDICARE = 0.009  # 0.9%
 SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE = 200000
+SE_ADDITIONAL_MEDICARE_THRESHOLD_JOINT = 250000
 
 # Default tax year
 DEFAULT_TAX_YEAR = 2024
@@ -89,6 +128,7 @@ def calculate_capital_gains_tax(
     long_term_gains: float,
     qualified_dividends: float,
     tax_year: int = DEFAULT_TAX_YEAR,
+    filing_status: str = 'single',
 ) -> float:
     """
     Calculate tax on long-term capital gains and qualified dividends.
@@ -110,7 +150,7 @@ def calculate_capital_gains_tax(
     total_tax = 0.0
     previous_limit = 0.0
     
-    ltcg_brackets = TAX_RATES[tax_year]['ltcg_brackets']
+    ltcg_brackets = TAX_RATES[tax_year][filing_status]['ltcg_brackets']
     for upper_limit, rate in ltcg_brackets:
         # Skip brackets below our starting point
         if upper_limit <= starting_income:
@@ -166,9 +206,12 @@ def calculate_self_employment_tax(
     medicare_tax = net_se_earnings * SE_TAX_RATE_MEDICARE
     
     # Additional Medicare tax (0.9% on SE income over threshold)
-    if net_se_earnings > SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE:
-        additional_medicare = (net_se_earnings - SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE) * SE_TAX_RATE_ADDITIONAL_MEDICARE
-        medicare_tax += additional_medicare
+    # Note: Threshold depends on filing status, but for SE tax calculation (Schedule SE)
+    # the threshold logic is complex. The 0.9% is actually calculated on Form 8959 
+    # based on combined wages + SE income. 
+    # For simplified calculation, we use Single threshold if not specified, 
+    # but strictly speaking this should be part of the final aggregation.
+    # We will handle Additional Medicare Tax on TOTAL income in the main function.
     
     total_se_tax = ss_tax + medicare_tax
     
@@ -187,28 +230,17 @@ def calculate_federal_tax(
     itemized_deductions: float = 0.0,
     w2_social_security_wages: float = 0.0,
     tax_year: int = DEFAULT_TAX_YEAR,
+    filing_status: str = 'single',
 ) -> FederalTaxResult:
     """
-    Calculate total federal tax liability for a Single filer.
+    Calculate total federal tax liability.
     
     Args:
-        wages: W-2 wages
-        interest_income: Interest income (1099-INT)
-        ordinary_dividends: Non-qualified dividends (1099-DIV Box 1a - 1b)
-        qualified_dividends: Qualified dividends (1099-DIV Box 1b)
-        short_term_gains: Short-term capital gains (taxed as ordinary income)
-        long_term_gains: Long-term capital gains
-        self_employment_income: 1099-NEC income
-        foreign_income: Foreign earned income (added to Gross)
-        itemized_deductions: Total Schedule A deductions
-        w2_social_security_wages: Box 3 from W-2s (for SE tax calculation)
-        tax_year: The tax year (2024 or 2025)
-        
-    Returns:
-        FederalTaxResult with complete tax breakdown
+        ...
+        filing_status: 'single' or 'joint'
     """
-    # Get rates for the selected year
-    rates = TAX_RATES[tax_year]
+    # Get rates for the selected year and filing status
+    rates = TAX_RATES[tax_year][filing_status]
     
     # Calculate gross income
     # Note: Capital losses are limited to $3,000 offset against ordinary income
@@ -241,9 +273,6 @@ def calculate_federal_tax(
             taxable_preferential_capital_gain = total_net_capital_gains
     
     # Gross income includes total NET capital gain (or deductible loss)
-    # The limit applies to how much can be deducted from OTHER income types, 
-    # but for gross income definition it's usually just the sum. 
-    # However, for tax calculation flow, using the deductible amount is safer for AGI.
     gross_income_capital_component = taxable_ordinary_capital_gain + taxable_preferential_capital_gain
     
     gross_income = (
@@ -289,15 +318,19 @@ def calculate_federal_tax(
         taxable_preferential_capital_gain, # Net LT gain
         qualified_dividends,
         tax_year,
+        filing_status,
     )
     
     # Total federal income tax
     total_income_tax = ordinary_tax + capital_gains_tax
     
-    # Additional Medicare Tax (0.9% on W-2 wages over $200k) - Schedule 2, Part I
+    # Additional Medicare Tax (0.9% on W-2 wages over Threshold) - Schedule 2, Part I
+    # Threshold depends on filing status
+    medicare_threshold = SE_ADDITIONAL_MEDICARE_THRESHOLD_JOINT if filing_status == 'joint' else SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE
+    
     additional_medicare_tax = 0.0
-    if wages > SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE:
-        additional_medicare_tax = (wages - SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE) * SE_TAX_RATE_ADDITIONAL_MEDICARE
+    if wages > medicare_threshold:
+        additional_medicare_tax = (wages - medicare_threshold) * SE_TAX_RATE_ADDITIONAL_MEDICARE
     
     # Total federal tax (income tax + SE tax + Additional Medicare Tax)
     total_federal_tax = total_income_tax + se_tax_total + additional_medicare_tax

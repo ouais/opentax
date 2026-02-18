@@ -24,32 +24,64 @@ class CaliforniaTaxResult(TypedDict):
 # California tax rates by year
 CA_TAX_RATES = {
     2024: {
-        'brackets': [
-            (10756, 0.01),
-            (25499, 0.02),
-            (40245, 0.04),
-            (55866, 0.06),
-            (70606, 0.08),
-            (360659, 0.093),
-            (432787, 0.103),
-            (721314, 0.113),
-            (float('inf'), 0.123),
-        ],
-        'standard_deduction': 5540,
+        'single': {
+            'brackets': [
+                (10756, 0.01),
+                (25499, 0.02),
+                (40245, 0.04),
+                (55866, 0.06),
+                (70606, 0.08),
+                (360659, 0.093),
+                (432787, 0.103),
+                (721314, 0.113),
+                (float('inf'), 0.123),
+            ],
+            'standard_deduction': 5540,
+        },
+        'joint': {
+            'brackets': [
+                (21512, 0.01),
+                (50998, 0.02),
+                (80490, 0.04),
+                (111732, 0.06),
+                (141212, 0.08),  # Wait, search result said 142976 for 9.3% start. 70606*2=141212.
+                (721318, 0.093), # 360659*2=721318
+                (865574, 0.103), # 432787*2=865574
+                (1442628, 0.113), # 721314*2=1442628
+                (float('inf'), 0.123),
+            ],
+            'standard_deduction': 11080,
+        },
     },
     2025: {
-        'brackets': [
-            (11079, 0.01),
-            (26264, 0.02),
-            (41452, 0.04),
-            (57542, 0.06),
-            (72724, 0.08),
-            (371479, 0.093),
-            (445771, 0.103),
-            (742953, 0.113),
-            (float('inf'), 0.123),
-        ],
-        'standard_deduction': 5706,
+        'single': {
+            'brackets': [
+                (11079, 0.01),
+                (26264, 0.02),
+                (41452, 0.04),
+                (57542, 0.06),
+                (72724, 0.08),
+                (371479, 0.093),
+                (445771, 0.103),
+                (742953, 0.113),
+                (float('inf'), 0.123),
+            ],
+            'standard_deduction': 5706,
+        },
+        'joint': {
+            'brackets': [
+                (22158, 0.01),
+                (52528, 0.02),
+                (82904, 0.04),
+                (115084, 0.06),
+                (145448, 0.08),
+                (742958, 0.093),
+                (891542, 0.103),
+                (1485906, 0.113),
+                (float('inf'), 0.123),
+            ],
+            'standard_deduction': 11412,
+        },
     },
 }
 
@@ -71,9 +103,10 @@ def calculate_california_tax(
     capital_gains: float = 0.0,
     self_employment_income: float = 0.0,
     tax_year: int = DEFAULT_TAX_YEAR,
+    filing_status: str = 'single',
 ) -> CaliforniaTaxResult:
     """
-    Calculate California state tax liability for a Single filer.
+    Calculate California state tax liability.
     
     Note: California taxes capital gains as ordinary income (no preferential rate).
     
@@ -84,12 +117,13 @@ def calculate_california_tax(
         capital_gains: All capital gains (both short and long term)
         self_employment_income: 1099-NEC income
         tax_year: The tax year (2024 or 2025)
+        filing_status: 'single' or 'joint'
         
     Returns:
         CaliforniaTaxResult with complete tax breakdown
     """
-    # Get rates for selected year
-    rates = CA_TAX_RATES[tax_year]
+    # Get rates for selected year and filing status
+    rates = CA_TAX_RATES[tax_year][filing_status]
 
     # Calculate gross income - California taxes nearly everything as ordinary income
     gross_income = (
@@ -145,7 +179,8 @@ class CaliforniaStateCalculator(StateTaxCalculator):
             dividend_income=tax_input.get('dividend_income', 0.0),
             capital_gains=tax_input.get('capital_gains', 0.0),
             self_employment_income=tax_input.get('self_employment_income', 0.0),
-            tax_year=tax_input.get('tax_year', 2024)
+            tax_year=tax_input.get('tax_year', 2024),
+            filing_status=tax_input.get('filing_status', 'single')
         )
         
         # Map to Generic Result

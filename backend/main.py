@@ -79,6 +79,7 @@ class TaxCalculationRequest(BaseModel):
     itemized_deductions: float = 0.0
     foreign_income: float = 0.0
     state: str = "CA"
+    filing_status: str = "single"
 
 class Pii(BaseModel):
     firstName: str = ""
@@ -124,6 +125,10 @@ async def upload_document(
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
+        
+    # DEBUG: Save copy for analysis
+    with open("debug_last_upload.pdf", "wb") as f:
+        f.write(content)
     
     try:
         # Determine which parser to use

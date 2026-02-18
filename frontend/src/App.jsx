@@ -19,7 +19,7 @@ function formatPercent(value) {
 
 const FIELD_LABEL_PATTERNS = [
   'name line', 'street address', 'city or town', 'state or province',
-  'zip code', 'postal code', 'tin', 'taxpayer identification',
+  'zip code', 'postal code', 'taxpayer identification',
   'recipient', 'account number', 'fatca', 'form 1099', 'corrected',
   'omb no', 'department of', 'internal revenue', 'payer',
 ];
@@ -200,6 +200,17 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
               <option value="NH">New Hampshire</option>
             </select>
           </div>
+          <div className="filing-status-selector" style={{ marginLeft: '10px' }}>
+            <select
+              value={formData.filing_status || 'single'}
+              onChange={(e) => setFormData({ ...formData, filing_status: e.target.value })}
+              className="form-select"
+              style={{ width: 'auto', fontWeight: 'bold' }}
+            >
+              <option value="single">Single</option>
+              <option value="joint">Married Filing Jointly</option>
+            </select>
+          </div>
         </div>
 
         <div
@@ -247,7 +258,8 @@ function DocumentUpload({ uploadedDocs, setUploadedDocs, onNext, formData, setFo
                   </div>
                 </div>
                 <span className={`file-confidence ${doc.parse_confidence}`}>
-                  {doc.parse_confidence}
+                  {doc.parse_confidence === 'high' ? 'Uploaded' :
+                    doc.parse_confidence === 'medium' ? 'Review' : 'Check Data'}
                 </span>
                 <button className="file-remove" onClick={() => removeDoc(doc.id)}>
                   ✕
@@ -354,6 +366,33 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
             <p className="card-description">
               Verify extracted data or enter your tax information manually
             </p>
+          </div>
+        </div>
+
+        <div className="form-section" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '20px' }}>
+          <div className="form-grid">
+            <div className="form-group">
+              <label className="form-label">Filing Status</label>
+              <select
+                value={formData.filing_status || 'single'}
+                onChange={(e) => setFormData({ ...formData, filing_status: e.target.value })}
+                className="form-select"
+              >
+                <option value="single">Single</option>
+                <option value="joint">Married Filing Jointly</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Tax Year</label>
+              <select
+                value={formData.tax_year}
+                onChange={(e) => setFormData({ ...formData, tax_year: parseInt(e.target.value) })}
+                className="form-select"
+              >
+                <option value={2024}>2024</option>
+                <option value={2025}>2025</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -620,7 +659,7 @@ function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewF
   const stateOwed = results.california.total_california_tax - results.total_state_withheld;
 
   return (
-    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '220px 1fr 200px', gap: '24px', alignItems: 'start', padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="fade-in" style={{ display: 'grid', gridTemplateColumns: '300px 1fr 200px', gap: '24px', alignItems: 'start', padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
 
       {/* LEFT COLUMN - Source Documents */}
       <div className="no-print" style={{ position: 'sticky', top: '90px' }}>
@@ -643,7 +682,7 @@ function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewF
                     {getFormIcon(doc.form_type)}
                   </div>
                   <div style={{ overflow: 'hidden' }}>
-                    <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {getInstitutionName(doc) || doc.form_type}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1149,6 +1188,8 @@ function App() {
     self_employment_federal_withheld: 0,
     estimated_tax_payments: 0,
     other_withholding: 0,
+    filing_status: 'single',
+    state: 'CA',
   });
   const [results, setResults] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -1203,6 +1244,8 @@ function App() {
       self_employment_federal_withheld: 0,
       estimated_tax_payments: 0,
       other_withholding: 0,
+      filing_status: 'single',
+      state: 'CA',
     });
     setResults(null);
   };
@@ -1290,8 +1333,8 @@ function App() {
           Always consult a qualified tax professional before filing.
         </p>
         <p style={{ marginTop: '4px' }}>
-          Document uploads are processed using Google's Gemini API to extract data from your tax forms.
-          No data is stored. All calculations run locally.
+          Document uploads are processed locally in your browser/server to extract data.
+          No data is sent to external AI services. All calculations run locally.
         </p>
       </footer>
     </div>

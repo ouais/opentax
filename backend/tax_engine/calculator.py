@@ -47,6 +47,7 @@ class TaxInput(TypedDict, total=False):
     itemized_deductions: float
     foreign_income: float
     state: str
+    filing_status: str  # 'single' or 'joint'
 
 
 class TaxSummary(TypedDict):
@@ -105,6 +106,7 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     tax_year = tax_input.get('tax_year', 2024)
     estimated_tax_payments = tax_input.get('estimated_tax_payments', 0.0)
     other_withholding = tax_input.get('other_withholding', 0.0)
+    filing_status = tax_input.get('filing_status', 'single')
     
     interest_income = tax_input.get('interest_income', 0.0)
     tax_exempt_interest = tax_input.get('tax_exempt_interest', 0.0)
@@ -157,6 +159,7 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         itemized_deductions=itemized_deductions,
         w2_social_security_wages=w2_social_security_wages,
         tax_year=tax_year,
+        filing_status=filing_status,
     )
     
     # Calculate State Tax via Registry
@@ -174,7 +177,8 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         'tax_year': tax_year,
         'federal_agi': federal_result['adjusted_gross_income'],
         'federal_taxable_income': federal_result['taxable_income'],
-        'filing_status': 'single'
+        'federal_taxable_income': federal_result['taxable_income'],
+        'filing_status': filing_status
     }
     
     # Returns standardized StateTaxResult (compatible with CaliforniaTaxResult)
