@@ -71,7 +71,18 @@ class TestFrontendServing:
         response = requests.get(BASE_URL)
         html = response.text
         # Common emojis that were previously in the app
-        banned_emojis = ["🐻", "🗽", "🤠", "📁", "✏️", "📄", "⚖️", "🔄", "📤", "⏳", "📥"]
+        banned_emojis = [
+            "🐻",
+            "🗽",
+            "🤠",
+            "📁",
+            "✏️",
+            "📄",
+            "⚖️",
+            "🔄",
+            "📤",
+            "⏳",
+            "📥"]
         for emoji in banned_emojis:
             assert emoji not in html, f"Found banned emoji {emoji} in homepage HTML"
 
@@ -86,7 +97,9 @@ class TestCalculateEndpoint:
     """Verify the /api/calculate endpoint works correctly."""
 
     def test_calculate_basic(self, server_available):
-        response = requests.post(f"{BASE_URL}/api/calculate", json=SAMPLE_TAX_INPUT)
+        response = requests.post(
+            f"{BASE_URL}/api/calculate",
+            json=SAMPLE_TAX_INPUT)
         assert response.status_code == 200
         result = response.json()
 
@@ -97,7 +110,9 @@ class TestCalculateEndpoint:
         assert "amount_owed" in result
 
     def test_calculate_federal_breakdown(self, server_available):
-        response = requests.post(f"{BASE_URL}/api/calculate", json=SAMPLE_TAX_INPUT)
+        response = requests.post(
+            f"{BASE_URL}/api/calculate",
+            json=SAMPLE_TAX_INPUT)
         result = response.json()
         fed = result["federal"]
 
@@ -109,7 +124,9 @@ class TestCalculateEndpoint:
         assert len(fed["bracket_breakdown"]) > 0
 
     def test_calculate_california_breakdown(self, server_available):
-        response = requests.post(f"{BASE_URL}/api/calculate", json=SAMPLE_TAX_INPUT)
+        response = requests.post(
+            f"{BASE_URL}/api/calculate",
+            json=SAMPLE_TAX_INPUT)
         result = response.json()
         cal = result["california"]
 
@@ -130,9 +147,12 @@ class TestCalculateEndpoint:
         assert result["federal"]["total_federal_tax"] == 0
 
     def test_calculate_high_income(self, server_available):
-        high_input = {**SAMPLE_TAX_INPUT, "w2_wages": 500000,
-                      "w2_federal_withheld": 100000, "w2_state_withheld": 30000,
-                      "w2_social_security_wages": 500000}
+        high_input = {
+            **SAMPLE_TAX_INPUT,
+            "w2_wages": 500000,
+            "w2_federal_withheld": 100000,
+            "w2_state_withheld": 30000,
+            "w2_social_security_wages": 500000}
         response = requests.post(f"{BASE_URL}/api/calculate", json=high_input)
         assert response.status_code == 200
         result = response.json()
@@ -188,7 +208,8 @@ class TestPdfGenerationEndpoint:
 
         # Verify each PDF inside is valid (non-empty)
         for name in filenames:
-            assert len(zf.read(name)) > 1000, f"{name} is too small to be a valid PDF"
+            assert len(
+                zf.read(name)) > 1000, f"{name} is too small to be a valid PDF"
 
     def test_generate_default_is_zip(self, server_available):
         payload = {**SAMPLE_TAX_INPUT, "pii": SAMPLE_PII}

@@ -4,7 +4,7 @@
 
 POPULAR_PAYERS = [
     # Major Banks
-    "JPMORGAN CHASE BANK", "CHASE BANK", "J.P. MORGAN", "WELLS FARGO", "BANK OF AMERICA", 
+    "JPMORGAN CHASE BANK", "CHASE BANK", "J.P. MORGAN", "WELLS FARGO", "BANK OF AMERICA",
     "CITIBANK", "U.S. BANK", "PNC BANK", "TRUIST BANK", "GOLDMAN SACHS", "CAPITAL ONE",
     "TD BANK", "BANK OF THE WEST", "BMO HARRIS BANK", "FIFTH THIRD BANK", "KEYBANK",
     "M&T BANK", "HUNTINGTON NATIONAL BANK", "REGIONS BANK", "CITIZENS BANK",
@@ -30,14 +30,15 @@ POPULAR_PAYERS = [
     # Fintech / Neobanks
     "CHIME", "VARO BANK", "SOFI BANK", "REVOLUT", "CURRENT", "ASPIRATION",
     "PAYPAL", "SQUARE", "BLOCK", "CASH APP", "STRIPE", "ADYEN",
-    
+
     # Government / Treasury
     "DEPARTMENT OF THE TREASURY", "INTERNAL REVENUE SERVICE", "US TREASURY",
-    
+
     # Common Variations
     "VANGUARD MARKETING CORP", "FIDELITY BROKERAGE SERVICES LLC",
     "CHARLES SCHWAB & CO INC", "TD AMERITRADE CLEARING", "NATIONAL FINANCIAL SERVICES LLC",
 ]
+
 
 def get_payer_score(text: str) -> int:
     """
@@ -45,16 +46,17 @@ def get_payer_score(text: str) -> int:
     High score = likely a real payer. 0 = no match.
     """
     upper = text.upper()
-    
+
     # Exact match
     if upper in POPULAR_PAYERS:
         return 100
-        
+
     # Substring match (e.g. "Vanguard" in "The Vanguard Group")
     for payer in POPULAR_PAYERS:
         if payer in upper:
             # If the known payer is a significant part of the text
             return 90
-            
-    # Fuzzy match logic could go here, but substring is usually enough for "Top 1k" concept
+
+    # Fuzzy match logic could go here, but substring is usually enough for
+    # "Top 1k" concept
     return 0

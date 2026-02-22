@@ -9,12 +9,15 @@ import os
 import tempfile
 import zipfile
 from typing import Optional
+import json
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import Response, FileResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
+import logging
 
 from parsers.w2 import parse_w2
 from parsers.form_1099_int import parse_1099_int
@@ -35,7 +38,10 @@ app = FastAPI(
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,36 +56,39 @@ class TaxCalculationRequest(BaseModel):
     w2_state_withheld: float = 0.0
     w2_social_security_wages: float = 0.0
     w2_casdi: float = 0.0  # California State Disability Insurance
-    
+    w2_medicare_wages: Optional[float] = 0.0
+    w2_medicare_tax: Optional[float] = 0.0
+
     # 1099-INT fields
     interest_income: float = 0.0
     tax_exempt_interest: float = 0.0
     interest_federal_withheld: float = 0.0
-    
+
     # 1099-DIV fields
     ordinary_dividends: float = 0.0
     qualified_dividends: float = 0.0
     capital_gain_distributions: float = 0.0
     dividend_federal_withheld: float = 0.0
-    
+
     # 1099-B fields
     short_term_gains: float = 0.0
     long_term_gains: float = 0.0
-    
+
     # 1099-NEC fields
     self_employment_income: float = 0.0
     self_employment_federal_withheld: float = 0.0
-    
+
     # Validation / Additional Payments
     estimated_tax_payments: float = 0.0
     other_withholding: float = 0.0
     tax_year: int = 2024
-    
+
     # Advanced
     itemized_deductions: float = 0.0
     foreign_income: float = 0.0
     state: str = "CA"
     filing_status: str = "single"
+
 
 class Pii(BaseModel):
     firstName: str = ""
@@ -89,6 +98,7 @@ class Pii(BaseModel):
     city: str = ""
     state: str = ""
     zip: str = ""
+
 
 class PdfRequest(TaxCalculationRequest):
     pii: Pii
@@ -109,32 +119,34 @@ async def upload_document(
 ):
     """
     Upload a tax document PDF and extract data.
-    
+
     Args:
         file: The PDF file to parse
         form_type: Optional hint for the form type (w2, 1099-int, 1099-div, 1099-b, 1099-nec)
-    
+
     Returns:
         ParsedDocument with extracted data
     """
     if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported")
+
     # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
         content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
-        
+
     # DEBUG: Save copy for analysis
     with open("debug_last_upload.pdf", "wb") as f:
         f.write(content)
-    
+
     try:
         # Determine which parser to use
         filename_lower = file.filename.lower()
         form_type_lower = (form_type or '').lower()
-        
+
         # Try to auto-detect form type from filename
         if form_type_lower == 'w2' or 'w-2' in filename_lower or 'w2' in filename_lower:
             result = parse_w2(tmp_path)
@@ -156,27 +168,30 @@ async def upload_document(
                 parse_1099_b,
                 parse_form_1040,
             ]
-            
+
             aggregated_data = {}
             found_types = []
             highest_confidence = 'failed'
             confidence_scores = {'high': 3, 'medium': 2, 'low': 1, 'failed': 0}
-            
+
             for parser in parsers:
                 try:
                     parser_result = parser(tmp_path)
-                    
+
                     # If parser found something relevant (confidence > failed)
-                    if parser_result.get('parse_confidence', 'failed') != 'failed':
+                    if parser_result.get(
+                            'parse_confidence', 'failed') != 'failed':
                         # Update confidence
                         conf = parser_result.get('parse_confidence', 'failed')
-                        if confidence_scores.get(conf, 0) > confidence_scores.get(highest_confidence, 0):
+                        if confidence_scores.get(
+                                conf, 0) > confidence_scores.get(
+                                highest_confidence, 0):
                             highest_confidence = conf
-                        
+
                         # Track found form types
                         if parser_result.get('form_type'):
                             found_types.append(parser_result['form_type'])
-                            
+
                         # Merge numeric fields
                         for key, value in parser_result.items():
                             if isinstance(value, (int, float)) and value != 0:
@@ -185,27 +200,28 @@ async def upload_document(
                             elif key not in aggregated_data and value:
                                 agg_val = aggregated_data.get(key)
                                 if not agg_val:
-                                     aggregated_data[key] = value
+                                    aggregated_data[key] = value
                 except Exception:
                     continue
-            
+
             if not aggregated_data:
                 # Fallback if nothing found
                 aggregated_data = parse_w2(tmp_path)
-                result = aggregated_data # raw dict
-                result['form_type'] = 'W-2' # Default
+                result = aggregated_data  # raw dict
+                result['form_type'] = 'W-2'  # Default
                 result['parse_confidence'] = 'failed'
             else:
                 # Construct final result
-                aggregated_data['form_type'] = '+'.join(set(found_types)) if found_types else 'Unknown'
+                aggregated_data['form_type'] = '+'.join(
+                    set(found_types)) if found_types else 'Unknown'
                 aggregated_data['parse_confidence'] = highest_confidence
                 result = aggregated_data
-        
+
         # Extract raw_text for response (truncate if too long)
         raw_text = result.pop('raw_text', '')
         if len(raw_text) > 5000:
             raw_text = raw_text[:5000] + '...[truncated]'
-        
+
         # Return merged result nested
         return ParsedDocument(
             form_type=result.get('form_type', 'unknown'),
@@ -213,7 +229,7 @@ async def upload_document(
             data=result,
             raw_text=raw_text
         )
-        
+
     finally:
         # Clean up temp file
         os.unlink(tmp_path)
@@ -223,7 +239,7 @@ async def upload_document(
 async def calculate_tax(request: TaxCalculationRequest):
     """
     Calculate federal and California taxes based on provided income data.
-    
+
     Returns complete tax breakdown including:
     - Federal tax with bracket breakdown
     - California state tax
@@ -236,6 +252,8 @@ async def calculate_tax(request: TaxCalculationRequest):
         'w2_federal_withheld': request.w2_federal_withheld,
         'w2_state_withheld': request.w2_state_withheld,
         'w2_social_security_wages': request.w2_social_security_wages,
+        'w2_medicare_wages': request.w2_medicare_wages,
+        'w2_medicare_tax': request.w2_medicare_tax,
         'w2_casdi': request.w2_casdi,
         'interest_income': request.interest_income,
         'tax_exempt_interest': request.tax_exempt_interest,
@@ -255,49 +273,68 @@ async def calculate_tax(request: TaxCalculationRequest):
         'foreign_income': request.foreign_income,
         'state': request.state,
     }
-    
+
     result = calculate_taxes(tax_input)
     return result
 
 
+# Add exception handler for validation errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+        request: Request,
+        exc: RequestValidationError):
+    error_details = exc.errors()
+    print(f"VALIDATION ERROR: {json.dumps(error_details, indent=2)}")
+    logging.error(f"Validation Error: {error_details}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": error_details, "body": str(exc.body)},
+    )
+
+
 @app.post("/api/generate-pdf")
 async def generate_pdf_endpoint(request: PdfRequest, form_type: str = "all"):
+    # Sanitize inputs: Convert None to 0.0 for all float fields
     tax_input = request.dict(exclude={'pii'})
+    for key, value in tax_input.items():
+        if value is None and key not in ['tax_year', 'filing_status', 'state']:
+            tax_input[key] = 0.0
+
     pii_dict = request.pii.dict()
-    
+
     try:
         result = calculate_taxes(tax_input)
-        
+
         if form_type == "1040":
             pdf_stream = generate_1040(result, pii_dict)
             return Response(
                 content=pdf_stream.read(),
                 media_type="application/pdf",
-                headers={"Content-Disposition": "attachment; filename=form1040_2025.pdf"}
-            )
+                headers={
+                    "Content-Disposition": "attachment; filename=form1040_2025.pdf"})
         elif form_type == "540":
             pdf_stream = generate_540(result, pii_dict)
             return Response(
                 content=pdf_stream.read(),
                 media_type="application/pdf",
-                headers={"Content-Disposition": "attachment; filename=ca540_2025.pdf"}
-            )
+                headers={
+                    "Content-Disposition": "attachment; filename=ca540_2025.pdf"})
         else:
             # Generate both and bundle as ZIP
             pdf_1040 = generate_1040(result, pii_dict)
             pdf_540 = generate_540(result, pii_dict)
-            
+
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr('form1040_2025.pdf', pdf_1040.read())
                 zf.writestr('ca540_2025.pdf', pdf_540.read())
             zip_buffer.seek(0)
-            
+
             return Response(
                 content=zip_buffer.read(),
                 media_type="application/zip",
-                headers={"Content-Disposition": "attachment; filename=tax_forms_2025.zip"}
-            )
+                headers={
+                    "Content-Disposition": "attachment; filename=tax_forms_2025.zip"})
     except Exception as e:
         print(f"PDF Generation Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,9 +343,15 @@ async def generate_pdf_endpoint(request: PdfRequest, form_type: str = "all"):
 # Serve React Frontend
 # Mount assets
 if os.path.exists("../frontend/dist/assets"):
-    app.mount("/assets", StaticFiles(directory="../frontend/dist/assets"), name="assets")
+    app.mount(
+        "/assets",
+        StaticFiles(
+            directory="../frontend/dist/assets"),
+        name="assets")
 
 # SPA Fallback for all other routes (excluding /api)
+
+
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
     # API routes are handled above. This catches everything else.

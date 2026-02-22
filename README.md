@@ -32,12 +32,25 @@ graph TD
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### ⚡ One-Click Quickstart (For Non-Developers)
 
+The easiest way to run OpenTax is using our automated startup scripts. They will handle installing everything and launching the app in your browser!
+
+**Mac & Linux:**
+1. Open your terminal.
+2. Navigate to this folder.
+3. Run `./start.sh` (or `npm start`)
+
+**Windows:**
+1. Double-click `start.bat` in this folder.
+
+---
+
+### 🛠️ Manual Local Setup (For Developers)
+
+#### Prerequisites
 - **Python 3.9+**
 - **Node.js 18+**
-
-### Local Setup
 
 1. **Clone and Install Backend**:
    ```bash

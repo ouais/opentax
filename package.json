@@ -2,12 +2,13 @@
     "name": "opentax",
     "private": true,
     "scripts": {
+        "start": "sh start.sh",
         "preflight": "npm run test && npm run lint",
         "test": "npm run test:backend && npm run test:frontend",
         "test:backend": "cd backend && python -m pytest",
         "test:frontend": "cd frontend && npm test -- --run",
         "lint": "npm run lint:backend && npm run lint:frontend",
-        "lint:backend": "cd backend && flake8 .",
+        "lint:backend": "cd backend && venv/bin/flake8 --exclude=venv .",
         "lint:frontend": "cd frontend && npm run lint",
         "install:all": "pip install -r backend/requirements.txt && cd frontend && npm install"
     }

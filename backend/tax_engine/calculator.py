@@ -16,33 +16,33 @@ class TaxInput(TypedDict, total=False):
     w2_federal_withheld: float
     w2_state_withheld: float
     w2_social_security_wages: float
-    
+
     # Interest income (1099-INT)
     interest_income: float
     tax_exempt_interest: float
     interest_federal_withheld: float
-    
+
     # Dividend income (1099-DIV)
     ordinary_dividends: float
     qualified_dividends: float
     capital_gain_distributions: float
     dividend_federal_withheld: float
-    
+
     # Capital gains (1099-B)
     short_term_gains: float
     long_term_gains: float
-    
+
     # Self-employment (1099-NEC)
     self_employment_income: float
     self_employment_federal_withheld: float
-    
+
     # Tax Year
     tax_year: int
-    
+
     # Validation / Additional Payments
     estimated_tax_payments: float
     other_withholding: float
-    
+
     # Advanced
     itemized_deductions: float
     foreign_income: float
@@ -60,24 +60,24 @@ class TaxSummary(TypedDict):
     total_capital_gains: float
     total_self_employment: float
     gross_income: float
-    
+
     # Federal
     federal: FederalTaxResult
-    
+
     # California
     california: CaliforniaTaxResult
-    
+
     # Payment Breakdown
     estimated_tax_payments: float
     other_withholding: float
-    
+
     # Summaries
     total_federal_withheld: float
-    
+
     # Withholding
     total_federal_withheld: float
     total_state_withheld: float
-    
+
     # Bottom line
     total_tax_liability: float
     total_withheld: float
@@ -88,10 +88,10 @@ class TaxSummary(TypedDict):
 def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     """
     Calculate complete federal and California tax liability.
-    
+
     Args:
         tax_input: Dictionary with all income and withholding amounts
-        
+
     Returns:
         TaxSummary with complete breakdown
     """
@@ -101,37 +101,42 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
     w2_state_withheld = tax_input.get('w2_state_withheld', 0.0)
     w2_social_security_wages = tax_input.get('w2_social_security_wages', 0.0)
     w2_casdi = tax_input.get('w2_casdi', 0.0)  # CA State Disability Insurance
-    
-    
+
     tax_year = tax_input.get('tax_year', 2024)
     estimated_tax_payments = tax_input.get('estimated_tax_payments', 0.0)
     other_withholding = tax_input.get('other_withholding', 0.0)
     filing_status = tax_input.get('filing_status', 'single')
-    
+
+    print(f"DEBUG: w2_medicare_wages={tax_input.get('w2_medicare_wages')}")
+    print(f"DEBUG: w2_medicare_tax={tax_input.get('w2_medicare_tax')}")
+
     interest_income = tax_input.get('interest_income', 0.0)
     tax_exempt_interest = tax_input.get('tax_exempt_interest', 0.0)
     interest_federal_withheld = tax_input.get('interest_federal_withheld', 0.0)
-    
+
     ordinary_dividends = tax_input.get('ordinary_dividends', 0.0)
     qualified_dividends = tax_input.get('qualified_dividends', 0.0)
-    capital_gain_distributions = tax_input.get('capital_gain_distributions', 0.0)
+    capital_gain_distributions = tax_input.get(
+        'capital_gain_distributions', 0.0)
     dividend_federal_withheld = tax_input.get('dividend_federal_withheld', 0.0)
-    
+
     short_term_gains = tax_input.get('short_term_gains', 0.0)
     long_term_gains = tax_input.get('long_term_gains', 0.0)
-    
+
     self_employment_income = tax_input.get('self_employment_income', 0.0)
-    self_employment_federal_withheld = tax_input.get('self_employment_federal_withheld', 0.0)
-    
+    self_employment_federal_withheld = tax_input.get(
+        'self_employment_federal_withheld', 0.0)
+
     # Calculate totals
     total_wages = w2_wages
     total_interest = interest_income
     total_dividends = ordinary_dividends  # qualified is subset of ordinary
-    net_capital_gains = short_term_gains + long_term_gains + capital_gain_distributions
+    net_capital_gains = short_term_gains + \
+        long_term_gains + capital_gain_distributions
     # Limit capital loss deduction to $3,000
     total_capital_gains = max(net_capital_gains, -3000.0)
     total_self_employment = self_employment_income
-    
+
     gross_income = (
         total_wages +
         total_interest +
@@ -139,14 +144,15 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         total_capital_gains +
         total_self_employment
     )
-    
+
     # Calculate federal tax
-    # Note: ordinary_dividends includes qualified, so we subtract to get non-qualified
+    # Note: ordinary_dividends includes qualified, so we subtract to get
+    # non-qualified
     non_qualified_dividends = ordinary_dividends - qualified_dividends
-    
+
     foreign_income = tax_input.get('foreign_income', 0.0)
     itemized_deductions = tax_input.get('itemized_deductions', 0.0)
-    
+
     federal_result = calculate_federal_tax(
         wages=w2_wages,
         interest_income=interest_income,
@@ -158,16 +164,18 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         foreign_income=foreign_income,
         itemized_deductions=itemized_deductions,
         w2_social_security_wages=w2_social_security_wages,
+        w2_medicare_wages=tax_input.get('w2_medicare_wages', 0.0),
+        w2_medicare_tax=tax_input.get('w2_medicare_tax', 0.0),
         tax_year=tax_year,
         filing_status=filing_status,
     )
-    
+
     # Calculate State Tax via Registry
     from .registry import StateTaxRegistry
     selected_state = tax_input.get('state', 'CA')
-    
+
     state_calc = StateTaxRegistry.get_calculator(selected_state)
-    
+
     state_input = {
         'wages': w2_wages,
         'interest_income': interest_income,
@@ -177,32 +185,34 @@ def calculate_taxes(tax_input: TaxInput) -> TaxSummary:
         'tax_year': tax_year,
         'federal_agi': federal_result['adjusted_gross_income'],
         'federal_taxable_income': federal_result['taxable_income'],
-        'federal_taxable_income': federal_result['taxable_income'],
         'filing_status': filing_status
     }
-    
+
     # Returns standardized StateTaxResult (compatible with CaliforniaTaxResult)
     california_result = state_calc.calculate(state_input)
-    
+
     # Calculate withholding totals
     total_federal_withheld = (
         w2_federal_withheld +
         interest_federal_withheld +
         dividend_federal_withheld +
         self_employment_federal_withheld +
-        estimated_tax_payments + 
-        other_withholding
+        estimated_tax_payments +
+        other_withholding +
+        federal_result.get('additional_medicare_withholding', 0.0)
     )
     # Include CASDI in state withholding? NO. CASDI is a separate tax (Disability Insurance).
     # It is NOT a prepayment of Income Tax.
-    # So we should NOT include it in total_state_withheld for comparison against Income Tax Liability.
+    # So we should NOT include it in total_state_withheld for comparison
+    # against Income Tax Liability.
     total_state_withheld = w2_state_withheld
-    
+
     # Calculate bottom line
-    total_tax_liability = federal_result['total_federal_tax'] + california_result['total_california_tax']
+    total_tax_liability = federal_result['total_federal_tax'] + \
+        california_result['total_california_tax']
     total_withheld = total_federal_withheld + total_state_withheld
     amount_owed = total_tax_liability - total_withheld
-    
+
     return {
         'total_wages': total_wages,
         'total_interest': total_interest,

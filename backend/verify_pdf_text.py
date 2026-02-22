@@ -9,10 +9,11 @@ pdf_path = os.path.join(base_dir, "forms/f1040.pdf")
 reader = PdfReader(pdf_path)
 reader = PdfReader(pdf_path)
 
+
 def analyze_page(page_num):
     print(f"\n=== Analyzing Page {page_num + 1} ===")
     page = reader.pages[page_num]
-    
+
     # 1. Get Fields and their Y-coordinates
     fields = {}
     if '/Annots' in page:
@@ -29,9 +30,11 @@ def analyze_page(page_num):
         y = tm[5]
         if y > 0 and len(text.strip()) > 0:
             keywords = [
-                "Tax-exempt interest", "Taxable interest", "Qualified dividends", "Ordinary dividends",
-                "Wage"
-            ]
+                "Tax-exempt interest",
+                "Taxable interest",
+                "Qualified dividends",
+                "Ordinary dividends",
+                "Wage"]
             text_lower = text.lower()
             if any(k.lower() in text_lower for k in keywords):
                 print(f"Found TEXT: '{text.strip()}' at Y={y}")
@@ -49,6 +52,6 @@ def analyze_page(page_num):
         if f in fields:
             print(f"Field {f} is at {fields[f]}")
 
+
 analyze_page(0)
 analyze_page(1)
-

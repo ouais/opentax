@@ -2,9 +2,10 @@
 import pdfplumber
 import sys
 
+
 def debug_metadata(pdf_path):
     print(f"--- Metadata Debugging {pdf_path} ---")
-    
+
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
         # Inspect annotations (AcroFields)
@@ -17,6 +18,7 @@ def debug_metadata(pdf_path):
                 print(f"Field {i}: Name='{field_name}', Value='{field_val}'")
         else:
             print("No annotations (AcroFields) found.")
+
 
 if __name__ == "__main__":
     debug_metadata("debug_last_upload.pdf")

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, TypedDict, List
 
+
 class StateTaxResult(TypedDict):
     """Standardized result format for any state tax calculation."""
     total_taxable_income: float
@@ -12,6 +13,7 @@ class StateTaxResult(TypedDict):
     effective_rate: float
     mental_health_tax: float  # CA specific, but can be 0 elsewhere
     # Add other common credits
+
 
 class StateTaxInput(TypedDict):
     """Standardized input for state tax calculation."""
@@ -26,6 +28,7 @@ class StateTaxInput(TypedDict):
     federal_taxable_income: float
     filing_status: str
 
+
 class StateTaxCalculator(ABC):
     """Abstract base class for state tax implementations."""
 
@@ -33,8 +36,11 @@ class StateTaxCalculator(ABC):
     def calculate(self, tax_input: StateTaxInput) -> StateTaxResult:
         """Calculate tax liability for the state."""
         pass
-        
+
     @abstractmethod
-    def get_standard_deduction(self, filing_status: str, tax_year: int) -> float:
+    def get_standard_deduction(
+            self,
+            filing_status: str,
+            tax_year: int) -> float:
         """Return standard deduction for the state."""
         pass

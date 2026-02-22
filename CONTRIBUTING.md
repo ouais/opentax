@@ -190,6 +190,12 @@ Parsers live in `backend/parsers/`. Each exports a `parse_<form_type>(pdf_path)`
 
 Look at existing parsers like `form_w2.py` or `form_1099_int.py` for the pattern.
 
+## Task Tracking and Testing Requirements
+
+When requesting or building a new feature or bug fix:
+1. **Add to `tasks.md`**: Log the new request in the project root's `tasks.md` file under the "Active Tasks" section.
+2. **Attach a Test**: Every completed task **must** include a corresponding unit test to verify the functionality and prevent regressions. When a task is moved to "Completed Tasks", log the specific test file and test name under the verification bullet. No PRs will be accepted without test verification attached!
+
 ## Running the App
 
 ```bash

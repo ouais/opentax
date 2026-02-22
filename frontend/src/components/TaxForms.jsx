@@ -97,7 +97,7 @@ const Form1040 = ({ info, data, withholding, estimatedPayments, otherWithholding
 };
 
 // Form 540 Component (California)
-const Form540 = ({ info, data, fedAGI, totalFederalWithholding }) => {
+const Form540 = ({ info, data, fedAGI }) => {
     // Note: data is results.california
 
     // Need to correctly display CA withholding (Wait, data.state_tax is TAX. What is WITHHOLDING?)
@@ -110,7 +110,6 @@ const Form540 = ({ info, data, fedAGI, totalFederalWithholding }) => {
     // We need 'total_state_withheld' from the calculation result wrapper, NOT just the 'california' key.
     // So Parent must pass 'stateWithholding'.
 
-    const withholding = info.stateWithholding || 0;
     // Wait, info is PII. withholding should be a prop.
 
     return (
@@ -192,7 +191,6 @@ const FormLine = ({ num, desc, val, bold = false }) => (
 
 // Main Container
 export default function TaxForms({ results, formData }) {
-    const [view, setView] = useState('1040');
     const [pii, setPii] = useState({
         firstName: '',
         lastName: '',
@@ -207,22 +205,56 @@ export default function TaxForms({ results, formData }) {
     // Note: we removed CASDI from backend calc.
     // Frontend formData aggregation (Step 819) has w2_state_withheld separately.
     // But Results (Step 808) contains total_state_withheld.
-    const stateWithholding = results.total_state_withheld;
+    // But Results (Step 808) contains total_state_withheld.
 
     const handlePiiChange = (field) => (e) => {
         setPii({ ...pii, [field]: e.target.value });
     };
 
-    const printForm = () => {
-        window.print();
-    };
-
     const handleDownloadPdf = async (formType = 'all') => {
         try {
-            const response = await fetch(`/api/generate-pdf?form_type=${formType}`, {
+            // Sanitize formData to ensure numbers (same as App.jsx handleCalculate)
+            // Robust helper to prevent null/NaN
+            const safeNum = (v) => {
+                if (v === null || v === undefined || v === '') return 0;
+                const n = Number(v);
+                return isNaN(n) ? 0 : n;
+            };
+
+            const sanitizedData = {
+                w2_wages: safeNum(formData.w2_wages),
+                w2_federal_withheld: safeNum(formData.w2_federal_withheld),
+                w2_state_withheld: safeNum(formData.w2_state_withheld),
+                w2_social_security_wages: safeNum(formData.w2_social_security_wages),
+                w2_medicare_wages: safeNum(formData.w2_medicare_wages),
+                w2_medicare_tax: safeNum(formData.w2_medicare_tax),
+                w2_casdi: safeNum(formData.w2_casdi),
+                interest_income: safeNum(formData.interest_income),
+                interest_federal_withheld: safeNum(formData.interest_federal_withheld),
+                ordinary_dividends: safeNum(formData.ordinary_dividends),
+                qualified_dividends: safeNum(formData.qualified_dividends),
+                capital_gain_distributions: safeNum(formData.capital_gain_distributions),
+                dividend_federal_withheld: safeNum(formData.dividend_federal_withheld),
+                short_term_gains: safeNum(formData.short_term_gains),
+                long_term_gains: safeNum(formData.long_term_gains),
+                self_employment_income: safeNum(formData.self_employment_income),
+                self_employment_federal_withheld: safeNum(formData.self_employment_federal_withheld),
+                estimated_tax_payments: safeNum(formData.estimated_tax_payments),
+                other_withholding: safeNum(formData.other_withholding),
+                itemized_deductions: safeNum(formData.itemized_deductions),
+                foreign_income: safeNum(formData.foreign_income),
+                tax_year: parseInt(formData.tax_year) || 2024,
+                filing_status: String(formData.filing_status || 'single'),
+                state: String(formData.state || 'CA'),
+            };
+
+            // Add timestamp to prevent caching
+            // Use API_BASE to point to the backend server (e.g. localhost:8000)
+            const API_BASE = 'http://localhost:8000';
+            const response = await fetch(`${API_BASE}/api/generate-pdf?form_type=${formType}&t=${Date.now()}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...formData, pii })
+                body: JSON.stringify({ ...sanitizedData, pii })
             });
             if (response.ok) {
                 const blob = await response.blob();
@@ -239,7 +271,16 @@ export default function TaxForms({ results, formData }) {
                 a.click();
                 a.remove();
             } else {
-                alert('Failed to generate PDF');
+                console.error('PDF Generation Failed', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('Error Details:', errorText);
+
+                if (response.status === 422) {
+                    alert('Data error detected. Refreshing app to fix...');
+                    window.location.reload(true); // Force reload to clear stale code/state
+                } else {
+                    alert('Failed to generate PDF. Please try again.');
+                }
             }
         } catch (e) {
             console.error(e);

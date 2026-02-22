@@ -25,6 +25,7 @@ class FederalTaxResult(TypedDict):
     capital_gains_tax: float
     self_employment_tax: float
     additional_medicare_tax: float
+    net_investment_income_tax: float
     total_federal_tax: float
     effective_rate: float
     marginal_rate: float
@@ -132,44 +133,44 @@ def calculate_capital_gains_tax(
 ) -> float:
     """
     Calculate tax on long-term capital gains and qualified dividends.
-    
+
     These get preferential rates but stack on top of ordinary income
     to determine which bracket applies.
     """
     if long_term_gains <= 0 and qualified_dividends <= 0:
         return 0.0
-    
+
     total_preferential_income = long_term_gains + qualified_dividends
     if total_preferential_income <= 0:
         return 0.0
-    
+
     # The starting point for capital gains is the end of ordinary income
     starting_income = taxable_income
     ending_income = taxable_income + total_preferential_income
-    
+
     total_tax = 0.0
     previous_limit = 0.0
-    
+
     ltcg_brackets = TAX_RATES[tax_year][filing_status]['ltcg_brackets']
     for upper_limit, rate in ltcg_brackets:
         # Skip brackets below our starting point
         if upper_limit <= starting_income:
             previous_limit = upper_limit
             continue
-        
+
         # Calculate the portion of gains in this bracket
         bracket_start = max(starting_income, previous_limit)
         bracket_end = min(ending_income, upper_limit)
-        
+
         if bracket_end > bracket_start:
             gains_in_bracket = bracket_end - bracket_start
             total_tax += gains_in_bracket * rate
-        
+
         if ending_income <= upper_limit:
             break
-            
+
         previous_limit = upper_limit
-    
+
     return total_tax
 
 
@@ -180,41 +181,42 @@ def calculate_self_employment_tax(
 ) -> tuple[float, float, float]:
     """
     Calculate self-employment tax (Social Security + Medicare).
-    
+
     Args:
         self_employment_income: Net self-employment income
         w2_social_security_wages: Social Security wages from W-2s
         tax_year: The tax year for rate selection
-        
+
     Returns:
         Tuple of (total_se_tax, social_security_portion, medicare_portion)
     """
     if self_employment_income <= 0:
         return 0.0, 0.0, 0.0
-    
+
     # Net SE earnings = 92.35% of net SE income (accounts for employer portion)
     net_se_earnings = self_employment_income * 0.9235
-    
+
     # Social Security portion (12.4%)
     # Reduced by any W-2 SS wages already paid
     ss_wage_base = TAX_RATES[tax_year]['ss_wage_base']
     ss_wage_room = max(0, ss_wage_base - w2_social_security_wages)
     ss_taxable = min(net_se_earnings, ss_wage_room)
     ss_tax = ss_taxable * SE_TAX_RATE_SOCIAL_SECURITY
-    
+
     # Medicare portion (2.9% on all SE earnings)
     medicare_tax = net_se_earnings * SE_TAX_RATE_MEDICARE
-    
+
     # Additional Medicare tax (0.9% on SE income over threshold)
     # Note: Threshold depends on filing status, but for SE tax calculation (Schedule SE)
-    # the threshold logic is complex. The 0.9% is actually calculated on Form 8959 
-    # based on combined wages + SE income. 
-    # For simplified calculation, we use Single threshold if not specified, 
+    # the threshold logic is complex. The 0.9% is actually calculated on Form 8959
+    # based on combined wages + SE income.
+    # For simplified calculation, we use Single threshold if not specified,
     # but strictly speaking this should be part of the final aggregation.
-    # We will handle Additional Medicare Tax on TOTAL income in the main function.
-    
+    # We will handle Additional Medicare Tax on TOTAL income in the main
+    # function.
+
     total_se_tax = ss_tax + medicare_tax
-    
+
     return total_se_tax, ss_tax, medicare_tax
 
 
@@ -229,29 +231,39 @@ def calculate_federal_tax(
     foreign_income: float = 0.0,
     itemized_deductions: float = 0.0,
     w2_social_security_wages: float = 0.0,
+    w2_medicare_wages: float = 0.0,
+    w2_medicare_tax: float = 0.0,
     tax_year: int = DEFAULT_TAX_YEAR,
     filing_status: str = 'single',
 ) -> FederalTaxResult:
     """
     Calculate total federal tax liability.
-    
+
     Args:
         ...
         filing_status: 'single' or 'joint'
     """
+    # Calculate Additional Medicare Tax withholding for Line 25c
+    # Employers withhold 1.45% (regular) + 0.9% (additional if wages > 200k)
+    # Box 6 total = (Wages * 0.0145) + AdditionalMedicareWithholding
+    # So Additional = Box 6 - (Wages * 0.0145)
+    regular_medicare_withholding = w2_medicare_wages * 0.0145
+    additional_medicare_withholding = max(
+        0, w2_medicare_tax - regular_medicare_withholding)
+
     # Get rates for the selected year and filing status
     rates = TAX_RATES[tax_year][filing_status]
-    
+
     # Calculate gross income
     # Note: Capital losses are limited to $3,000 offset against ordinary income
     net_st = short_term_gains
     net_lt = long_term_gains
     total_net_capital_gains = net_st + net_lt
-    
+
     # Schedule D Netting Logic
     taxable_ordinary_capital_gain = 0.0
     taxable_preferential_capital_gain = 0.0
-    
+
     if total_net_capital_gains < 0:
         # Net Capital Loss: Deduct up to $3,000 against ordinary income
         deductible_loss = max(total_net_capital_gains, -3000.0)
@@ -271,10 +283,11 @@ def calculate_federal_tax(
             # LT Gain absorbs ST Loss: Tax excess as preferential
             taxable_ordinary_capital_gain = 0.0
             taxable_preferential_capital_gain = total_net_capital_gains
-    
+
     # Gross income includes total NET capital gain (or deductible loss)
-    gross_income_capital_component = taxable_ordinary_capital_gain + taxable_preferential_capital_gain
-    
+    gross_income_capital_component = taxable_ordinary_capital_gain + \
+        taxable_preferential_capital_gain
+
     gross_income = (
         wages +
         interest_income +
@@ -284,7 +297,7 @@ def calculate_federal_tax(
         self_employment_income +
         foreign_income
     )
-    
+
     # Self-employment deduction (half of SE tax)
     se_tax_total, se_ss_tax, se_medicare_tax = calculate_self_employment_tax(
         self_employment_income,
@@ -292,54 +305,81 @@ def calculate_federal_tax(
         tax_year,
     )
     se_deduction = se_tax_total / 2
-    
+
     # Adjusted Gross Income
     agi = gross_income - se_deduction
-    
+
     # Apply deductions (Standard vs Itemized)
     standard_deduction = rates['standard_deduction']
     total_deductions = max(standard_deduction, itemized_deductions)
-    
+
     taxable_income = max(0, agi - total_deductions)
-    
+
     # Ordinary Taxable Income
     preferential_income = qualified_dividends + taxable_preferential_capital_gain
     ordinary_taxable_income = max(0.0, taxable_income - preferential_income)
-    
+
     # Calculate ordinary income tax
     ordinary_tax, marginal_rate, bracket_breakdown = calculate_tax_from_brackets(
-        ordinary_taxable_income,
-        rates['brackets'],
-    )
-    
+        ordinary_taxable_income, rates['brackets'], )
+
     # Calculate capital gains tax (on LTCG + qualified dividends)
     capital_gains_tax = calculate_capital_gains_tax(
         ordinary_taxable_income,
-        taxable_preferential_capital_gain, # Net LT gain
+        taxable_preferential_capital_gain,  # Net LT gain
         qualified_dividends,
         tax_year,
         filing_status,
     )
-    
+
     # Total federal income tax
     total_income_tax = ordinary_tax + capital_gains_tax
-    
+
     # Additional Medicare Tax (0.9% on W-2 wages over Threshold) - Schedule 2, Part I
     # Threshold depends on filing status
     medicare_threshold = SE_ADDITIONAL_MEDICARE_THRESHOLD_JOINT if filing_status == 'joint' else SE_ADDITIONAL_MEDICARE_THRESHOLD_SINGLE
-    
+
     additional_medicare_tax = 0.0
-    if wages > medicare_threshold:
-        additional_medicare_tax = (wages - medicare_threshold) * SE_TAX_RATE_ADDITIONAL_MEDICARE
-    
+    # Use Medicare wages (Box 5) if available, otherwise fallback to regular wages
+    # Also include Self-Employment income for the threshold test (Form 8959)
+    # Total subject to Addt'l Medicare Tax = (Medicare Wages + SE Income) -
+    # Threshold
+    subject_wages = max(wages, w2_medicare_wages) + self_employment_income
+
+    additional_medicare_tax = 0.0
+    if subject_wages > medicare_threshold:
+        additional_medicare_tax = (
+            subject_wages - medicare_threshold) * SE_TAX_RATE_ADDITIONAL_MEDICARE
+
+    print(
+        f"DEBUG_FED: subject_wages={subject_wages}, threshold={medicare_threshold}, tax={additional_medicare_tax}")
+
     # Total federal tax (income tax + SE tax + Additional Medicare Tax)
     total_federal_tax = total_income_tax + se_tax_total + additional_medicare_tax
-    
+
+    # Net Investment Income Tax (NIIT) - Form 8960
+    # 3.8% on the lesser of Net Investment Income (NII) or MAGI over the threshold.
+    niit_threshold = 250000.0 if filing_status == 'joint' else 200000.0
+    net_investment_income = interest_income + ordinary_dividends + qualified_dividends + gross_income_capital_component
+    net_investment_income_tax = 0.0
+
+    if agi > niit_threshold and net_investment_income > 0:
+        magi_overage = agi - niit_threshold
+        amount_subject_to_niit = min(net_investment_income, magi_overage)
+        net_investment_income_tax = amount_subject_to_niit * 0.038
+
+    # Add NIIT to total federal tax
+    total_federal_tax += net_investment_income_tax
+
     # Effective rate
-    effective_rate = (total_federal_tax / gross_income * 100) if gross_income > 0 else 0.0
-    
+    effective_rate = (
+        total_federal_tax /
+        gross_income *
+        100) if gross_income > 0 else 0.0
+
     return {
         'wages': wages,
+        'filing_status': filing_status,
         'interest_income': interest_income,
         'ordinary_dividends': ordinary_dividends,
         'qualified_dividends': qualified_dividends,
@@ -356,9 +396,10 @@ def calculate_federal_tax(
         'capital_gains_tax': capital_gains_tax,
         'self_employment_tax': se_tax_total,
         'additional_medicare_tax': additional_medicare_tax,
+        'net_investment_income_tax': net_investment_income_tax,
         'total_federal_tax': total_federal_tax,
         'effective_rate': effective_rate,
         'marginal_rate': marginal_rate * 100,
         'bracket_breakdown': bracket_breakdown,
+        'additional_medicare_withholding': additional_medicare_withholding,
     }
-

@@ -295,6 +295,8 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
         w2_federal_withheld: 0,
         w2_state_withheld: 0,
         w2_social_security_wages: 0,
+        w2_medicare_wages: 0,
+        w2_medicare_tax: 0,
         w2_casdi: 0,  // California State Disability Insurance
         interest_income: 0,
         interest_federal_withheld: 0,
@@ -320,6 +322,8 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
         aggregated.w2_federal_withheld += data.federal_tax_withheld || 0;
         aggregated.w2_state_withheld += data.state_tax_withheld || 0;
         aggregated.w2_social_security_wages += data.social_security_wages || 0;
+        aggregated.w2_medicare_wages += data.medicare_wages || 0;
+        aggregated.w2_medicare_tax += data.medicare_tax_withheld || 0;
         aggregated.w2_casdi += data.casdi || 0;
 
         // Interest (1099-INT)
@@ -349,7 +353,7 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
       console.log('Aggregated Form Data:', aggregated);
       setFormData(aggregated);
     }
-  }, [uploadedDocs, setFormData]);
+  }, [uploadedDocs, setFormData, formData.tax_year]);
 
   const handleChange = (field) => (e) => {
     const value = parseFloat(e.target.value) || 0;
@@ -444,6 +448,30 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
                   className="form-input"
                   value={formData.w2_social_security_wages || ''}
                   onChange={handleChange('w2_social_security_wages')}
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Box 5: Medicare wages and tips</label>
+              <div className="input-prefix">
+                <input
+                  type="number"
+                  className="form-input"
+                  value={formData.w2_medicare_wages || ''}
+                  onChange={handleChange('w2_medicare_wages')}
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Box 6: Medicare tax withheld</label>
+              <div className="input-prefix">
+                <input
+                  type="number"
+                  className="form-input"
+                  value={formData.w2_medicare_tax || ''}
+                  onChange={handleChange('w2_medicare_tax')}
                   placeholder="0.00"
                 />
               </div>
@@ -648,7 +676,7 @@ function IncomeReview({ uploadedDocs, formData, setFormData, onBack, onCalculate
 }
 
 // Tax Results Component
-function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewForms, onViewLaws }) {
+export function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewForms, onViewLaws }) {
   if (!results) return null;
 
   const isRefund = results.amount_owed < 0;
@@ -785,6 +813,11 @@ function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewF
             <p className="result-card-subtitle">
               Federal: {formatCurrency(results.total_federal_withheld)} • State: {formatCurrency(results.total_state_withheld)}
             </p>
+            {results.federal.additional_medicare_withholding > 0 && (
+              <p className="result-card-subtitle" style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                (Includes {formatCurrency(results.federal.additional_medicare_withholding)} Add'l Medicare Tax)
+              </p>
+            )}
           </div>
 
           <div className="result-card">
@@ -848,6 +881,21 @@ function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewF
                 <tr>
                   <td>Additional Medicare Tax</td>
                   <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.additional_medicare_tax)}</td>
+                </tr>
+              )}
+              {results.federal.net_investment_income_tax > 0 && (
+                <tr>
+                  <td>Net Investment Income Tax (NIIT)</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(results.federal.net_investment_income_tax)}</td>
+                </tr>
+              )}
+              {results.federal.wages > 200000 && (
+                <tr style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <td colSpan="2" style={{ fontStyle: 'italic', paddingTop: 0, paddingBottom: 'var(--space-xs)' }}>
+                    {results.federal.additional_medicare_tax === 0
+                      ? 'Note: Your employer withheld an extra 0.9% on wages over $200k, refundable via Form 8959.'
+                      : 'Note: Includes 0.9% withheld by employer on wages over $200k.'}
+                  </td>
                 </tr>
               )}
               <tr className="total-row">
@@ -978,7 +1026,7 @@ function TaxResults({ results, state, uploadedDocs, onBack, onStartOver, onViewF
 }
 
 // Tax Law Breakdown Component
-function TaxLawBreakdown({ results, state, onBack }) {
+export function TaxLawBreakdown({ results, state, onBack }) {
   if (!results) return null;
 
   const fed = results.federal;
@@ -1046,15 +1094,31 @@ function TaxLawBreakdown({ results, state, onBack }) {
     }
 
     // Additional Medicare Tax
-    if (fed.additional_medicare_tax > 0) {
+    if (fed.additional_medicare_tax > 0 || (fed.wages > 200000 && fed.additional_medicare_tax === 0)) {
+      const isWithholdingOnly = fed.wages > 200000 && fed.additional_medicare_tax === 0;
       entries.push({
         name: 'Additional Medicare Tax',
         cite: 'IRC §3101(b)(2) — Affordable Care Act (2010)',
-        desc: '0.9% on earnings over $200,000 (single)',
+        desc: isWithholdingOnly
+          ? 'Employer withholds extra 0.9% on wages over $200,000 (even if your total liability is zero due to filing status)'
+          : `0.9% on earnings over ${fed.filing_status === 'joint' ? '$250,000' : '$200,000'}`,
         amount: fed.additional_medicare_tax,
-        type: 'tax',
+        type: isWithholdingOnly ? 'info' : 'tax',
         icon: '§',
         section: 'Federal Payroll & Other Taxes',
+      });
+    }
+
+    // Net Investment Income Tax
+    if (fed.net_investment_income_tax > 0) {
+      entries.push({
+        name: 'Net Investment Income Tax (NIIT)',
+        cite: 'IRC §1411 — Form 8960',
+        desc: `3.8% surtax on investment income for MAGI over ${fed.filing_status === 'joint' ? '$250,000' : '$200,000'}`,
+        amount: fed.net_investment_income_tax,
+        type: 'tax',
+        icon: '§',
+        section: 'Federal Income Tax',
       });
     }
 
@@ -1175,6 +1239,8 @@ function App() {
     w2_federal_withheld: 0,
     w2_state_withheld: 0,
     w2_social_security_wages: 0,
+    w2_medicare_wages: 0,
+    w2_medicare_tax: 0,
     w2_casdi: 0,  // California State Disability Insurance
     interest_income: 0,
     interest_federal_withheld: 0,
@@ -1198,12 +1264,32 @@ function App() {
     setIsCalculating(true);
     try {
       // Sanitize inputs: Convert empty strings to 0 and ensure numbers
-      const sanitizedData = Object.fromEntries(
-        Object.entries(formData).map(([key, val]) => [
-          key,
-          (val === '' || val === null || val === undefined) ? 0 : Number(val)
-        ])
-      );
+      const sanitizedData = {
+        w2_wages: Number(formData.w2_wages) || 0,
+        w2_federal_withheld: Number(formData.w2_federal_withheld) || 0,
+        w2_state_withheld: Number(formData.w2_state_withheld) || 0,
+        w2_social_security_wages: Number(formData.w2_social_security_wages) || 0,
+        w2_medicare_wages: Number(formData.w2_medicare_wages) || 0,
+        w2_medicare_tax: Number(formData.w2_medicare_tax) || 0,
+        w2_casdi: Number(formData.w2_casdi) || 0,
+        interest_income: Number(formData.interest_income) || 0,
+        interest_federal_withheld: Number(formData.interest_federal_withheld) || 0,
+        ordinary_dividends: Number(formData.ordinary_dividends) || 0,
+        qualified_dividends: Number(formData.qualified_dividends) || 0,
+        capital_gain_distributions: Number(formData.capital_gain_distributions) || 0,
+        dividend_federal_withheld: Number(formData.dividend_federal_withheld) || 0,
+        short_term_gains: Number(formData.short_term_gains) || 0,
+        long_term_gains: Number(formData.long_term_gains) || 0,
+        self_employment_income: Number(formData.self_employment_income) || 0,
+        self_employment_federal_withheld: Number(formData.self_employment_federal_withheld) || 0,
+        estimated_tax_payments: Number(formData.estimated_tax_payments) || 0,
+        other_withholding: Number(formData.other_withholding) || 0,
+        itemized_deductions: Number(formData.itemized_deductions) || 0,
+        foreign_income: Number(formData.foreign_income) || 0,
+        tax_year: Number(formData.tax_year) || 2024,
+        filing_status: String(formData.filing_status || 'single'),
+        state: String(formData.state || 'CA'),
+      };
 
       const response = await fetch(`${API_BASE}/api/calculate`, {
         method: 'POST',
@@ -1231,6 +1317,8 @@ function App() {
       w2_federal_withheld: 0,
       w2_state_withheld: 0,
       w2_social_security_wages: 0,
+      w2_medicare_wages: 0,
+      w2_medicare_tax: 0,
       w2_casdi: 0,
       interest_income: 0,
       interest_federal_withheld: 0,
@@ -1255,8 +1343,17 @@ function App() {
       <header className="app-header">
         <div className="header-content">
           <div className="app-logo">
-            <div>
-              <h1 className="app-title">OpenTax</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1 className="app-title" style={{ margin: 0 }}>OpenTax</h1>
+              <span style={{
+                backgroundColor: 'var(--primary)',
+                color: 'white',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                textTransform: 'uppercase'
+              }}>Beta</span>
             </div>
           </div>
         </div>
