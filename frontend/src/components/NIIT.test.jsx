@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import React from 'react';
 
 // The App exports the main App component, but it's hard to test the internal state directly.

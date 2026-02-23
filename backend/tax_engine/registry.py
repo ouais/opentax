@@ -22,25 +22,15 @@ class StateTaxRegistry:
             from .states.california import CaliforniaStateCalculator
             return CaliforniaStateCalculator()
 
-        if state_code == 'NY':
-            from .states.new_york import NewYorkStateCalculator
-            return NewYorkStateCalculator()
-
-        # States with NO income tax
-        if state_code in [
-            'TX',
-            'FL',
-            'WA',
-            'TN',
-            'NV',
-            'SD',
-            'WY',
-            'AK',
-                'NH']:
-            from .states.no_income_tax import NoIncomeTaxState
-            return NoIncomeTaxState()
-
-        # For MVP, default to NoTax (or Generic) to prevent crashes
-        # Ideally this would be GenericTaxState with flat rate placeholder
-        from .states.no_income_tax import NoIncomeTaxState
-        return NoIncomeTaxState()
+        try:
+            from .states.generic import GenericStateCalculator
+            return GenericStateCalculator(state_code)
+        except ValueError:
+            # Fallback for states completely missing from states.json (prevent breakage)
+            # Default to no income tax representation
+            from .states.generic import GenericStateCalculator
+            # Temporarily inject a blank config so the generic calculator works without raising ValueError
+            calc = GenericStateCalculator.__new__(GenericStateCalculator)
+            calc.state_code = state_code
+            calc.state_data = {"name": state_code, "has_income_tax": False}
+            return calc

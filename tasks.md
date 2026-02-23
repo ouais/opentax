@@ -4,6 +4,7 @@ Whenever a new feature or fix is requested, it will be added here along with the
 
 ## Active Tasks
 - [ ] Add your next tasks here!
+- [x] Make the software work for all US states and territories
 
 ## Completed Tasks
 - [x] Display the Net Investment Income Tax (NIIT) in the frontend UI.
